@@ -15,6 +15,8 @@ export class Account extends Model {
   @field('card_type') cardType!: string | null;
   @field('credit_limit') creditLimit!: number | null;
   @field('current_balance') currentBalance!: number;
+  @date('bill_date') billDate!: Date | null; 
+  @date('due_date') dueDate!: Date | null; 
   @readonly @date('created_at') createdAt!: Date;
 }
 

@@ -6,6 +6,7 @@ import { observer } from 'mobx-react-lite';
 import { useStores } from '../../stores';
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '../../theme';
 import { Card, GlowCard, ProgressBar, SectionHeader, MetricTile, Divider, StatRow } from '../../components/shared';
+import { DonutChart, HorizontalBar, BarChart } from '../../components/Charts';
 import { formatINR } from '../../utils/finance';
 
 type BudgetKey = 'needs' | 'wants' | 'savings';
@@ -28,33 +29,89 @@ const BudgetScreen: React.FC = observer(({ navigation }: any) => {
     accountId: '', amount: '', category: 'wants' as BudgetKey,
     subCategory: 'dining', note: '', isExpense: true,
   });
-  const [incomeForm, setIncomeForm] = useState({ name: '', amount: '', frequency: 'monthly' });
+  const [editingTxnId, setEditingTxnId] = useState<string | null>(null);
+  const [editingIncomeId, setEditingIncomeId] = useState<string | null>(null);
 
-  const b = budget.budget;
+  const startEditTxn = (t: any) => {
+    setEditingTxnId(t.id);
+    setTxnForm({
+      accountId: t.accountId,
+      amount: String(Math.abs(t.amount)),
+      category: t.category as BudgetKey,
+      subCategory: t.subCategory,
+      note: t.note || '',
+      isExpense: t.amount < 0,
+    });
+    setShowAddTxn(true);
+  };
 
-  const handleAddTxn = async () => {
+  const startEditIncome = (i: any) => {
+    setEditingIncomeId(i.id);
+    setIncomeForm({
+      name: i.name,
+      amount: String(i.amount),
+      frequency: i.frequency,
+    });
+    setShowAddIncome(true);
+  };
+
+  const resetTxnForm = () => {
+    setEditingTxnId(null);
+    setTxnForm({
+      accountId: '', amount: '', category: 'wants',
+      subCategory: 'dining', note: '', isExpense: true,
+    });
+  };
+
+  const resetIncomeForm = () => {
+    setEditingIncomeId(null);
+    setIncomeForm({ name: '', amount: '', frequency: 'monthly' });
+  };
+
+  const handleSaveTxn = async () => {
     if (!txnForm.amount) { Alert.alert('Error', 'Amount required'); return; }
     const amt = parseFloat(txnForm.amount);
-    await budget.addTransaction({
+    const data = {
       accountId: txnForm.accountId || 'default',
       amount: txnForm.isExpense ? -Math.abs(amt) : Math.abs(amt),
       category: txnForm.category,
       subCategory: txnForm.subCategory,
       note: txnForm.note,
       date: new Date(),
-    });
+    };
+
+    if (editingTxnId) {
+      await budget.updateTransaction(editingTxnId, data);
+    } else {
+      await budget.addTransaction(data);
+    }
     setShowAddTxn(false);
+    resetTxnForm();
   };
 
-  const handleAddIncome = async () => {
+  // All payment options: debit accounts + credit cards
+  const paymentOptions = [
+    ...accounts.debitAccounts.map(a => ({ id: a.id, label: a.name, sub: a.bankName, emoji: '🏦', isCredit: false })),
+    ...accounts.creditCards.map(c => ({ id: c.id, label: `${c.bankName} ···${c.cardLast2}`, sub: c.cardType?.toUpperCase() ?? 'CARD', emoji: '💳', isCredit: true })),
+  ];
+  const [incomeForm, setIncomeForm] = useState({ name: '', amount: '', frequency: 'monthly' });
+
+  const b = budget.budget;
+
+  const handleSaveIncome = async () => {
     if (!incomeForm.name || !incomeForm.amount) { Alert.alert('Error', 'Name and amount required'); return; }
-    await budget.addIncomeSource({
+    const data = {
       name: incomeForm.name,
       amount: parseFloat(incomeForm.amount),
       frequency: incomeForm.frequency,
-      date: new Date(),
-    });
+    };
+    if (editingIncomeId) {
+      await budget.updateIncomeSource(editingIncomeId, data);
+    } else {
+      await budget.addIncomeSource({ ...data, date: new Date() });
+    }
     setShowAddIncome(false);
+    resetIncomeForm();
   };
 
   const subCatsFor = (cat: BudgetKey) =>
@@ -88,13 +145,23 @@ const BudgetScreen: React.FC = observer(({ navigation }: any) => {
           {budget.incomeSources.length > 0 && (
             <>
               <Divider style={{ marginVertical: Spacing.sm }} />
-              {budget.incomeSources.map(src => (
-                <View key={src.id} style={styles.incomeItem}>
-                  <Text style={styles.incomeName}>{src.name}</Text>
-                  <Text style={[styles.incomeAmt, { color: Colors.success }]}>
-                    +₹{formatINR(src.amount)} / {src.frequency}
-                  </Text>
-                </View>
+              {budget.incomeSources.map(i => (
+                <TouchableOpacity
+                  key={i.id}
+                  activeOpacity={0.7}
+                  onLongPress={() => {
+                    Alert.alert('Manage Income', i.name, [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Edit', onPress: () => startEditIncome(i) },
+                      { text: 'Delete', style: 'destructive', onPress: () => budget.deleteIncomeSource(i.id) },
+                    ]);
+                  }}
+                >
+                  <View style={styles.incomeItem}>
+                    <Text style={styles.incomeName}>{i.name} {i.frequency === 'one-time' && '(One-time)'}</Text>
+                    <Text style={[styles.incomeAmt, { color: Colors.success }]}>₹{formatINR(i.amount)}</Text>
+                  </View>
+                </TouchableOpacity>
               ))}
             </>
           )}
@@ -190,26 +257,37 @@ const BudgetScreen: React.FC = observer(({ navigation }: any) => {
             .slice(0, 20)
             .map(t => (
               <Card key={t.id} style={styles.txnCard}>
-                <View style={styles.txnRow}>
-                  <View style={[styles.txnDot, {
-                    backgroundColor: t.amount < 0 ? Colors.dangerDim : Colors.successDim,
-                    borderColor: t.amount < 0 ? `${Colors.danger}40` : `${Colors.success}40`,
-                  }]}>
-                    <Text style={{ fontSize: 12 }}>{t.amount < 0 ? '↓' : '↑'}</Text>
-                  </View>
-                  <View style={styles.txnLeft}>
-                    <Text style={styles.txnSub}>{t.subCategory}</Text>
-                    {t.note ? <Text style={styles.txnNote}>{t.note}</Text> : null}
-                    <Text style={styles.txnDate}>
-                      {new Date(t.date).toLocaleDateString('en-IN')}
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onLongPress={() => {
+                    Alert.alert('Manage Transaction', t.subCategory, [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Edit', onPress: () => startEditTxn(t) },
+                      { text: 'Delete', style: 'destructive', onPress: () => budget.deleteTransaction(t.id) },
+                    ]);
+                  }}
+                >
+                  <View style={styles.txnRow}>
+                    <View style={[styles.txnDot, {
+                      backgroundColor: t.amount < 0 ? Colors.dangerDim : Colors.successDim,
+                      borderColor: t.amount < 0 ? `${Colors.danger}40` : `${Colors.success}40`,
+                    }]}>
+                      <Text style={{ fontSize: 12 }}>{t.amount < 0 ? '↓' : '↑'}</Text>
+                    </View>
+                    <View style={styles.txnLeft}>
+                      <Text style={styles.txnSub}>{t.subCategory}</Text>
+                      {t.note ? <Text style={styles.txnNote}>{t.note}</Text> : null}
+                      <Text style={styles.txnDate}>
+                        {new Date(t.date).toLocaleDateString('en-IN')}
+                      </Text>
+                    </View>
+                    <Text style={[styles.txnAmount, {
+                      color: t.amount < 0 ? Colors.danger : Colors.success,
+                    }]}>
+                      {t.amount < 0 ? '-' : '+'}₹{formatINR(Math.abs(t.amount))}
                     </Text>
                   </View>
-                  <Text style={[styles.txnAmount, {
-                    color: t.amount < 0 ? Colors.danger : Colors.success,
-                  }]}>
-                    {t.amount < 0 ? '-' : '+'}₹{formatINR(Math.abs(t.amount))}
-                  </Text>
-                </View>
+                </TouchableOpacity>
               </Card>
             ))
         )}
@@ -218,8 +296,8 @@ const BudgetScreen: React.FC = observer(({ navigation }: any) => {
         <Modal visible={showAddTxn} animationType="slide" presentationStyle="pageSheet">
           <View style={styles.modal}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Transaction</Text>
-              <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowAddTxn(false)}>
+              <Text style={styles.modalTitle}>{editingTxnId ? 'Edit Transaction' : 'Add Transaction'}</Text>
+              <TouchableOpacity style={styles.modalCloseBtn} onPress={() => { setShowAddTxn(false); resetTxnForm(); }}>
                 <Text style={styles.modalClose}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -236,6 +314,43 @@ const BudgetScreen: React.FC = observer(({ navigation }: any) => {
                   </TouchableOpacity>
                 ))}
               </View>
+              {/* Payment Method */}
+              {paymentOptions.length > 0 && (
+                <>
+                  <Text style={styles.inputLabel}>💳 Payment Method</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+                    {paymentOptions.map(opt => (
+                      <TouchableOpacity
+                        key={opt.id}
+                        style={[
+                          styles.paymentChip,
+                          txnForm.accountId === opt.id && [
+                            styles.paymentChipActive,
+                            opt.isCredit && styles.paymentChipCredit,
+                          ],
+                        ]}
+                        onPress={() => setTxnForm(f => ({ ...f, accountId: f.accountId === opt.id ? '' : opt.id }))}
+                      >
+                        <Text style={styles.paymentChipEmoji}>{opt.emoji}</Text>
+                        <View>
+                          <Text style={[
+                            styles.paymentChipLabel,
+                            txnForm.accountId === opt.id && styles.paymentChipLabelActive,
+                          ]}>{opt.label}</Text>
+                          <Text style={styles.paymentChipSub}>{opt.sub}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                  {txnForm.accountId && paymentOptions.find(o => o.id === txnForm.accountId)?.isCredit && (
+                    <View style={styles.creditNote}>
+                      <Text style={styles.creditNoteText}>
+                        💳 This spend will be tracked against the card's billing cycle
+                      </Text>
+                    </View>
+                  )}
+                </>
+              )}
               <Text style={styles.inputLabel}>Amount (₹)</Text>
               <TextInput
                 style={styles.input}
@@ -277,8 +392,8 @@ const BudgetScreen: React.FC = observer(({ navigation }: any) => {
                 placeholder="What was this for?"
                 placeholderTextColor={Colors.textMuted}
               />
-              <TouchableOpacity style={styles.saveBtn} onPress={handleAddTxn} activeOpacity={0.8}>
-                <Text style={styles.saveBtnText}>Save Transaction</Text>
+              <TouchableOpacity style={styles.saveBtn} onPress={handleSaveTxn} activeOpacity={0.8}>
+                <Text style={styles.saveBtnText}>{editingTxnId ? 'Update Transaction' : 'Add Transaction'}</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -288,8 +403,8 @@ const BudgetScreen: React.FC = observer(({ navigation }: any) => {
         <Modal visible={showAddIncome} animationType="slide" presentationStyle="pageSheet">
           <View style={styles.modal}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Income Source</Text>
-              <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowAddIncome(false)}>
+              <Text style={styles.modalTitle}>{editingIncomeId ? 'Edit Income' : 'Add Income Source'}</Text>
+              <TouchableOpacity style={styles.modalCloseBtn} onPress={() => { setShowAddIncome(false); resetIncomeForm(); }}>
                 <Text style={styles.modalClose}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -306,8 +421,8 @@ const BudgetScreen: React.FC = observer(({ navigation }: any) => {
                   </TouchableOpacity>
                 ))}
               </View>
-              <TouchableOpacity style={styles.saveBtn} onPress={handleAddIncome} activeOpacity={0.8}>
-                <Text style={styles.saveBtnText}>Save Income</Text>
+              <TouchableOpacity style={styles.saveBtn} onPress={handleSaveIncome} activeOpacity={0.8}>
+                <Text style={styles.saveBtnText}>{editingIncomeId ? 'Update Income' : 'Save Income'}</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -459,4 +574,30 @@ const styles = StyleSheet.create({
     ...Shadow.glow,
   },
   saveBtnText: { color: Colors.textPrimary, fontWeight: FontWeight.black, fontSize: FontSize.base },
+
+  // Payment method chips
+  paymentChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: Spacing.base, paddingVertical: Spacing.sm,
+    borderRadius: Radius.md, borderWidth: 1.5,
+    borderColor: Colors.border, backgroundColor: Colors.bgCard,
+    marginRight: 8, marginTop: 4,
+  },
+  paymentChipActive: { backgroundColor: `${Colors.info}18`, borderColor: Colors.info },
+  paymentChipCredit: { backgroundColor: `${Colors.warning}18`, borderColor: Colors.warning },
+  paymentChipEmoji: { fontSize: 16 },
+  paymentChipLabel: {
+    fontSize: FontSize.xs, fontWeight: FontWeight.semibold, color: Colors.textSecondary,
+  },
+  paymentChipLabelActive: { color: Colors.textPrimary, fontWeight: FontWeight.bold },
+  paymentChipSub: { fontSize: 10, color: Colors.textMuted, marginTop: 1 },
+  creditNote: {
+    backgroundColor: `${Colors.warning}12`,
+    borderRadius: Radius.sm,
+    padding: Spacing.sm,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: `${Colors.warning}25`,
+  },
+  creditNoteText: { fontSize: FontSize.xs, color: Colors.warning, fontWeight: FontWeight.medium },
 });

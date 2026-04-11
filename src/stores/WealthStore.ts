@@ -142,4 +142,57 @@ export class WealthStore {
     });
     await this.load();
   }
+
+  async updateGoal(id: string, data: { name?: string; targetAmount?: number; currentAmount?: number; targetDate?: Date; color?: string }) {
+    await db.goals.database.write(async () => {
+      const g = await db.goals.find(id) as any;
+      await g.update((_g: any) => {
+        if (data.name !== undefined) _g.name = data.name;
+        if (data.targetAmount !== undefined) _g.targetAmount = data.targetAmount;
+        if (data.currentAmount !== undefined) _g.currentAmount = data.currentAmount;
+        if (data.targetDate !== undefined) _g.targetDate = data.targetDate;
+        if (data.color !== undefined) _g.color = data.color;
+      });
+    });
+    await this.load();
+  }
+
+  async deleteGoal(id: string) {
+    await db.goals.database.write(async () => {
+      const g = await db.goals.find(id);
+      await g.destroyPermanently();
+    });
+    await this.load();
+  }
+
+  async updateChitty(id: string, data: { name?: string; monthlyInstallment?: number; totalValue?: number; durationMonths?: number; startDate?: Date; auctionDividends?: number }) {
+    await db.chittys.database.write(async () => {
+      const c = await db.chittys.find(id) as any;
+      await c.update((_c: any) => {
+        if (data.name !== undefined) _c.name = data.name;
+        if (data.monthlyInstallment !== undefined) _c.monthlyInstallment = data.monthlyInstallment;
+        if (data.totalValue !== undefined) _c.totalValue = data.totalValue;
+        if (data.durationMonths !== undefined) _c.durationMonths = data.durationMonths;
+        if (data.startDate !== undefined) _c.startDate = data.startDate;
+        if (data.auctionDividends !== undefined) _c.auctionDividends = data.auctionDividends;
+      });
+    });
+    await this.load();
+  }
+
+  async deleteChitty(id: string) {
+    await db.chittys.database.write(async () => {
+      const c = await db.chittys.find(id);
+      await c.destroyPermanently();
+    });
+    await this.load();
+  }
+
+  async deleteStock(id: string) {
+    await db.stocks.database.write(async () => {
+      const s = await db.stocks.find(id);
+      await s.destroyPermanently();
+    });
+    await this.load();
+  }
 }

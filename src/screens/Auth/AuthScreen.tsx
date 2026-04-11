@@ -6,6 +6,7 @@ import {
 import { observer } from 'mobx-react-lite';
 import { useStores, loadAllStores } from '../../stores';
 import { Colors, FontSize, FontWeight, Spacing, Radius } from '../../theme';
+import AppIcon from '../../components/AppIcon';
 
 const PIN_LENGTH = 6;
 
@@ -78,9 +79,7 @@ const AuthScreen: React.FC = observer(() => {
     <View style={styles.container}>
       {/* Logo area */}
       <View style={styles.header}>
-        <View style={styles.logoCircle}>
-          <Text style={styles.logoText}>₹</Text>
-        </View>
+        <AppIcon size={100} />
         <Text style={styles.appName}>FinTrack</Text>
         <Text style={styles.tagline}>Your Private Wealth Manager</Text>
       </View>
@@ -145,25 +144,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Spacing.xxl,
   },
-  logoCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.base,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 15,
-  },
-  logoText: {
-    fontSize: 36,
-    color: Colors.textPrimary,
-    fontWeight: FontWeight.bold,
-  },
+
   appName: {
     fontSize: FontSize.xxl,
     fontWeight: FontWeight.extrabold,

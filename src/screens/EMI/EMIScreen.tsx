@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Modal, TextInput, Alert, StatusBar,
+  Modal, TextInput, Alert, StatusBar, Switch,
 } from 'react-native';
 import { observer } from 'mobx-react-lite';
 import { useStores } from '../../stores';
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '../../theme';
 import { Card, GlowCard, Badge, SectionHeader, EmptyState, Divider, MetricTile, StatRow } from '../../components/shared';
-import { formatINR, calculateEMI, generateAmortization, calculateTaxBenefits } from '../../utils/finance';
+import { formatINR, calculateEMI, generateAmortization, calculateTaxBenefits, calculateROIFromEMI } from '../../utils/finance';
 
 type LoanType = 'housing' | 'vehicle' | 'personal';
 
@@ -24,30 +24,105 @@ const LOAN_EMOJIS: Record<LoanType, string> = {
 };
 
 const EMIScreen: React.FC = observer(() => {
-  const { loans } = useStores();
+  const { loans, accounts } = useStores();
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedLoan, setSelectedLoan] = useState<string | null>(null);
   const [showAmort, setShowAmort] = useState(false);
+  const [unknownInterest, setUnknownInterest] = useState(false);
+  const [alreadyStarted, setAlreadyStarted] = useState(false);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [form, setForm] = useState({
     type: 'housing' as LoanType, lender: '', principal: '',
     roi: '', tenureMonths: '', emiDay: '5',
     startDate: new Date().toISOString().split('T')[0],
+    emiAmount: '',   // used when interest rate is unknown
+    completedEmis: '', // used when loan is already in progress
   });
+  const [contribForm, setContribForm] = useState({
+    memberId: '', amount: '', description: '', isJointEmi: false, accountId: '',
+  });
+  const [editingLoanId, setEditingId] = useState<string | null>(null);
 
-  const handleAdd = async () => {
-    if (!form.lender || !form.principal || !form.roi || !form.tenureMonths) {
+  const resetForm = () => {
+    setEditingId(null);
+    setForm({
+      type: 'housing', lender: '', principal: '', roi: '', tenureMonths: '', emiDay: '5',
+      startDate: new Date().toISOString().split('T')[0], emiAmount: '', completedEmis: '',
+    });
+    setContribForm({
+      memberId: '', amount: '', description: '', isJointEmi: false, accountId: '',
+    });
+    setUnknownInterest(false);
+    setAlreadyStarted(false);
+    setSelectedAccountId('');
+  };
+
+  const startEdit = (loan: any) => {
+    setEditingId(loan.id);
+    const emi = calculateEMI(loan.principal, loan.roi, loan.tenureMonths);
+    setForm({
+      type: loan.type,
+      lender: loan.lender,
+      principal: String(loan.principal),
+      roi: String(loan.roi),
+      tenureMonths: String(loan.tenureMonths),
+      emiDay: String(loan.emiDay),
+      startDate: new Date(loan.startDate).toISOString().split('T')[0],
+      emiAmount: String(Math.round(emi)),
+      completedEmis: String(loan.paidEmis),
+    });
+    setUnknownInterest(false);
+    setAlreadyStarted(loan.paidEmis > 0);
+    setSelectedAccountId(loan.accountId || '');
+    setShowAddModal(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.lender || !form.principal || !form.tenureMonths) {
       Alert.alert('Error', 'Please fill in all required fields.'); return;
     }
-    await loans.addLoan({
+    if (unknownInterest && !form.emiAmount) {
+      Alert.alert('Error', 'Please enter your EMI amount.'); return;
+    }
+    if (!unknownInterest && !form.roi) {
+      Alert.alert('Error', 'Please enter the interest rate.'); return;
+    }
+    const completedEmisNum = alreadyStarted ? parseInt(form.completedEmis || '0') : 0;
+    const tenureNum = parseInt(form.tenureMonths);
+    if (alreadyStarted && completedEmisNum >= tenureNum) {
+      Alert.alert('Error', 'Completed EMIs cannot be ≥ total tenure months.'); return;
+    }
+
+    let roi: number;
+    if (unknownInterest) {
+      roi = calculateROIFromEMI(
+        parseFloat(form.emiAmount),
+        parseFloat(form.principal),
+        parseInt(form.tenureMonths),
+      );
+    } else {
+      roi = parseFloat(form.roi);
+    }
+
+    const data = {
       type: form.type,
       lender: form.lender,
       principal: parseFloat(form.principal),
-      roi: parseFloat(form.roi),
-      tenureMonths: parseInt(form.tenureMonths),
+      roi,
+      tenureMonths: tenureNum,
       startDate: new Date(form.startDate),
       emiDay: parseInt(form.emiDay),
-    });
+      paidEmis: completedEmisNum,
+      accountId: selectedAccountId || undefined,
+    };
+
+    if (editingLoanId) {
+      await loans.updateLoan(editingLoanId, data);
+    } else {
+      await loans.addLoan(data);
+    }
     setShowAddModal(false);
+    resetForm();
   };
 
   const selected = selectedLoan ? loans.loans.find(l => l.id === selectedLoan) : null;
@@ -62,6 +137,12 @@ const EMIScreen: React.FC = observer(() => {
     if (nextDue <= today) nextDue.setMonth(nextDue.getMonth() + 1);
     return Math.ceil((nextDue.getTime() - today.getTime()) / 86400000);
   };
+
+  const creditCardIds = new Set(accounts.creditCards.map(c => c.id));
+  const paymentOptions = [
+    ...accounts.debitAccounts.map(a => ({ id: a.id, label: a.name ?? a.bankName, sub: a.bankName, emoji: '🏦', isCredit: false })),
+    ...accounts.creditCards.map(c => ({ id: c.id, label: `${c.bankName} ···${c.cardLast2}`, sub: 'Pay later (Credit)', emoji: '💳', isCredit: true })),
+  ];
 
   return (
     <>
@@ -114,11 +195,23 @@ const EMIScreen: React.FC = observer(() => {
 
             return (
               <TouchableOpacity
-                key={loan.id}
-                activeOpacity={0.75}
-                onPress={() => { setSelectedLoan(loan.id); setShowAmort(true); }}
-              >
-                <Card style={[styles.loanCard, { borderLeftColor: color, borderLeftWidth: 3 }]}>
+                 key={loan.id}
+                 activeOpacity={0.75}
+                 onPress={() => { setSelectedLoan(loan.id); setShowAmort(true); }}
+                 onLongPress={() => {
+                   Alert.alert('Manage Loan', loan.lender, [
+                     { text: 'Cancel', style: 'cancel' },
+                     { text: 'Edit', onPress: () => startEdit(loan) },
+                     { text: 'Delete Loan', style: 'destructive', onPress: () => {
+                       Alert.alert('Delete', 'Are you sure?', [
+                         { text: 'No' },
+                         { text: 'Yes', onPress: () => loans.deleteLoan(loan.id) }
+                       ]);
+                     }},
+                   ]);
+                 }}
+               >
+                <Card style={StyleSheet.flatten([styles.loanCard, { borderLeftColor: color, borderLeftWidth: 3 }]) as any}>
                   {/* Top row */}
                   <View style={styles.loanTop}>
                     <View style={[styles.loanIconBg, { backgroundColor: `${color}18` }]}>
@@ -163,14 +256,37 @@ const EMIScreen: React.FC = observer(() => {
                     ]}
                   />
 
+                  {/* Payment method badge */}
+                  {loan.accountId && (() => {
+                    const payOpt = paymentOptions.find(p => p.id === loan.accountId);
+                    if (!payOpt) return null;
+                    const isCC = creditCardIds.has(loan.accountId);
+                    return (
+                      <View style={styles.paymentBadgeRow}>
+                        <Text style={styles.paymentBadgeEmoji}>{payOpt.emoji}</Text>
+                        <Text style={[
+                          styles.paymentBadgeText,
+                          { color: isCC ? Colors.warning : Colors.info },
+                        ]}>
+                          {isCC ? 'Credit Card EMI' : 'Debit Account'} · {payOpt.label}
+                        </Text>
+                      </View>
+                    );
+                  })()}
+
                   {/* Pay button */}
                   <TouchableOpacity
                     style={styles.payBtn}
                     activeOpacity={0.8}
                     onPress={() => {
-                      Alert.alert('Mark EMI Paid', `Mark ₹${formatINR(emi)} as paid?`, [
+                      const isCC = loan.accountId ? creditCardIds.has(loan.accountId) : false;
+                      const payOpt = loan.accountId ? paymentOptions.find(p => p.id === loan.accountId) : null;
+                      const msg = isCC
+                        ? `Mark ₹${formatINR(emi)} as paid?\n\n💳 EMI will also be added to ${payOpt?.label ?? 'your card'}'s bill cycle.`
+                        : `Mark ₹${formatINR(emi)} as paid?`;
+                      Alert.alert('Mark EMI Paid', msg, [
                         { text: 'Cancel', style: 'cancel' },
-                        { text: 'Confirm', onPress: () => loans.markEMIPaid(loan.id) },
+                        { text: 'Confirm', onPress: () => loans.markEMIPaid(loan.id, creditCardIds) },
                       ]);
                     }}
                   >
@@ -186,10 +302,10 @@ const EMIScreen: React.FC = observer(() => {
         <Modal visible={showAddModal} animationType="slide" presentationStyle="pageSheet">
           <View style={styles.modal}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Loan / EMI</Text>
+              <Text style={styles.modalTitle}>{editingLoanId ? 'Edit Loan' : 'Add Loan'}</Text>
               <TouchableOpacity
                 style={styles.modalCloseBtn}
-                onPress={() => setShowAddModal(false)}
+                onPress={() => { setShowAddModal(false); resetForm(); }}
               >
                 <Text style={styles.modalClose}>✕</Text>
               </TouchableOpacity>
@@ -216,10 +332,70 @@ const EMIScreen: React.FC = observer(() => {
                 ))}
               </View>
 
+              {/* Static fields: Lender, Principal, Tenure, EMI Day, Start Date */}
               {[
                 { label: 'Lender / Bank *', key: 'lender', placeholder: 'e.g. SBI Home Loan' },
                 { label: 'Principal Amount (₹) *', key: 'principal', placeholder: 'e.g. 5000000', keyboard: 'decimal-pad' },
-                { label: 'Annual Interest Rate (%) *', key: 'roi', placeholder: 'e.g. 8.5', keyboard: 'decimal-pad' },
+              ].map(({ label, key, placeholder, keyboard }) => (
+                <View key={key}>
+                  <Text style={styles.inputLabel}>{label}</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={(form as any)[key]}
+                    onChangeText={v => setForm(f => ({ ...f, [key]: v }))}
+                    placeholder={placeholder}
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType={(keyboard as any) ?? 'default'}
+                  />
+                </View>
+              ))}
+
+              {/* ── Unknown Interest Toggle ───────────────────────────── */}
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleLabelCol}>
+                  <Text style={styles.toggleTitle}>I don't know the interest rate</Text>
+                  <Text style={styles.toggleSub}>App will calculate it from your EMI amount</Text>
+                </View>
+                <Switch
+                  value={unknownInterest}
+                  onValueChange={v => {
+                    setUnknownInterest(v);
+                    setForm(f => ({ ...f, roi: '', emiAmount: '' }));
+                  }}
+                  trackColor={{ false: Colors.border, true: `${Colors.primary}88` }}
+                  thumbColor={unknownInterest ? Colors.primary : Colors.textMuted}
+                />
+              </View>
+
+              {/* Conditional: Interest Rate OR Known EMI Amount */}
+              {unknownInterest ? (
+                <View>
+                  <Text style={styles.inputLabel}>Your EMI Amount (₹) *</Text>
+                  <TextInput
+                    style={[styles.input, styles.inputHighlight]}
+                    value={form.emiAmount}
+                    onChangeText={v => setForm(f => ({ ...f, emiAmount: v }))}
+                    placeholder="e.g. 9800"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+              ) : (
+                <View>
+                  <Text style={styles.inputLabel}>Annual Interest Rate (%) *</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={form.roi}
+                    onChangeText={v => setForm(f => ({ ...f, roi: v }))}
+                    placeholder="e.g. 8.5"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+              )}
+
+              {/* Tenure + EMI Day + Start Date */}
+              {[
                 { label: 'Tenure (months) *', key: 'tenureMonths', placeholder: 'e.g. 240', keyboard: 'numeric' },
                 { label: 'EMI Due Day of Month', key: 'emiDay', placeholder: '1–28', keyboard: 'numeric' },
                 { label: 'Start Date (YYYY-MM-DD)', key: 'startDate', placeholder: '2024-01-01' },
@@ -237,22 +413,196 @@ const EMIScreen: React.FC = observer(() => {
                 </View>
               ))}
 
-              {/* Live EMI preview */}
-              {form.principal && form.roi && form.tenureMonths ? (
-                <Card style={styles.previewCard} variant="accent">
-                  <Text style={styles.previewLabel}>ESTIMATED MONTHLY EMI</Text>
-                  <Text style={styles.previewValue}>
-                    ₹{formatINR(calculateEMI(
-                      parseFloat(form.principal),
-                      parseFloat(form.roi),
-                      parseInt(form.tenureMonths),
-                    ))}
-                  </Text>
-                </Card>
-              ) : null}
+              {/* ── Already Started Toggle ─────────────────────────── */}
+              <View style={[styles.toggleRow, { marginTop: Spacing.base }]}>
+                <View style={styles.toggleLabelCol}>
+                  <Text style={styles.toggleTitle}>🔄 Loan already in progress?</Text>
+                  <Text style={styles.toggleSub}>Enter how many EMIs you've already paid</Text>
+                </View>
+                <Switch
+                  value={alreadyStarted}
+                  onValueChange={v => {
+                    setAlreadyStarted(v);
+                    setForm(f => ({ ...f, completedEmis: '' }));
+                  }}
+                  trackColor={{ false: Colors.border, true: `${Colors.warning}88` }}
+                  thumbColor={alreadyStarted ? Colors.warning : Colors.textMuted}
+                />
+              </View>
 
-              <TouchableOpacity style={styles.saveBtn} onPress={handleAdd} activeOpacity={0.8}>
-                <Text style={styles.saveBtnText}>Add Loan</Text>
+              {/* Completed Tenure Details */}
+              {alreadyStarted && (
+                <View>
+                  {/* Completed EMIs input */}
+                  <Text style={styles.inputLabel}>Completed EMIs (paid so far) *</Text>
+                  <TextInput
+                    style={[styles.input, styles.inputHighlightWarning]}
+                    value={form.completedEmis}
+                    onChangeText={v => setForm(f => ({ ...f, completedEmis: v }))}
+                    placeholder="e.g. 24"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="numeric"
+                  />
+
+                  {/* Derived dates info card */}
+                  {form.startDate && form.tenureMonths ? (() => {
+                    const start = new Date(form.startDate);
+                    const tenure = parseInt(form.tenureMonths) || 0;
+                    const completed = parseInt(form.completedEmis || '0');
+                    const remaining = tenure - completed;
+
+                    const endDate = new Date(start);
+                    endDate.setMonth(endDate.getMonth() + tenure);
+
+                    const nextEmiDate = new Date(start);
+                    nextEmiDate.setMonth(nextEmiDate.getMonth() + completed);
+
+                    const fmt = (d: Date) =>
+                      d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+                    return (
+                      <View style={styles.tenureInfoCard}>
+                        <Text style={styles.tenureInfoTitle}>📅 Tenure Details</Text>
+                        <View style={styles.tenureInfoRow}>
+                          <View style={styles.tenureInfoItem}>
+                            <Text style={styles.tenureInfoLabel}>START DATE</Text>
+                            <Text style={styles.tenureInfoValue}>{fmt(start)}</Text>
+                          </View>
+                          <View style={[styles.tenureInfoItem, styles.tenureInfoItemMid]}>
+                            <Text style={styles.tenureInfoLabel}>END DATE</Text>
+                            <Text style={[styles.tenureInfoValue, { color: Colors.danger }]}>{fmt(endDate)}</Text>
+                          </View>
+                          <View style={styles.tenureInfoItem}>
+                            <Text style={styles.tenureInfoLabel}>NEXT EMI</Text>
+                            <Text style={[styles.tenureInfoValue, { color: Colors.warning }]}>{fmt(nextEmiDate)}</Text>
+                          </View>
+                        </View>
+                        <View style={styles.tenureProgressRow}>
+                          <Text style={styles.tenureProgressText}>
+                            {completed} paid · {remaining > 0 ? remaining : 0} remaining
+                          </Text>
+                          <Text style={styles.tenureProgressPct}>
+                            {tenure > 0 ? ((completed / tenure) * 100).toFixed(0) : 0}% done
+                          </Text>
+                        </View>
+                        <View style={styles.progressBg}>
+                          <View
+                            style={[
+                              styles.progressFill,
+                              {
+                                width: `${tenure > 0 ? Math.min((completed / tenure) * 100, 100) : 0}%`,
+                                backgroundColor: Colors.warning,
+                              },
+                            ]}
+                          />
+                        </View>
+                      </View>
+                    );
+                  })() : null}
+                </View>
+              )}
+
+              {/* Live Preview */}
+              {unknownInterest
+                ? (form.principal && form.emiAmount && form.tenureMonths ? (() => {
+                    const computedROI = calculateROIFromEMI(
+                      parseFloat(form.emiAmount),
+                      parseFloat(form.principal),
+                      parseInt(form.tenureMonths),
+                    );
+                    return (
+                      <Card style={styles.previewCard} variant="accent">
+                        <Text style={styles.previewLabel}>CALCULATED INTEREST RATE</Text>
+                        <Text style={styles.previewValue}>{computedROI > 0 ? `${computedROI}% p.a.` : '0% (Interest-free)'}</Text>
+                        <Text style={[styles.previewLabel, { marginTop: 8 }]}>EMI YOU ENTERED</Text>
+                        <Text style={[styles.previewValue, { color: Colors.warning, fontSize: FontSize.xl }]}>
+                          ₹{formatINR(parseFloat(form.emiAmount))}/mo
+                        </Text>
+                      </Card>
+                    );
+                  })() : null)
+                : (form.principal && form.roi && form.tenureMonths ? (
+                    <Card style={styles.previewCard} variant="accent">
+                      <Text style={styles.previewLabel}>ESTIMATED MONTHLY EMI</Text>
+                      <Text style={styles.previewValue}>
+                        ₹{formatINR(calculateEMI(
+                          parseFloat(form.principal),
+                          parseFloat(form.roi),
+                          parseInt(form.tenureMonths),
+                        ))}
+                      </Text>
+                    </Card>
+                  ) : null)
+              }
+
+              {/* ── Payment Method ──────────────────────────── */}
+              {paymentOptions.length > 0 && (
+                <View style={{ marginTop: Spacing.base }}>
+                  <Text style={styles.inputLabel}>💳 EMI Payment Method</Text>
+                  <Text style={styles.paymentHint}>Which account/card will this EMI be debited from?</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                    {/* None option */}
+                    <TouchableOpacity
+                      style={[
+                        styles.paymentChip,
+                        !selectedAccountId && styles.paymentChipActive,
+                      ]}
+                      onPress={() => setSelectedAccountId('')}
+                    >
+                      <Text style={styles.paymentChipEmoji}>🚫</Text>
+                      <View>
+                        <Text style={[
+                          styles.paymentChipLabel,
+                          !selectedAccountId && styles.paymentChipLabelActive,
+                        ]}>Not linked</Text>
+                        <Text style={styles.paymentChipSub}>Skip</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    {paymentOptions.map(opt => (
+                      <TouchableOpacity
+                        key={opt.id}
+                        style={[
+                          styles.paymentChip,
+                          selectedAccountId === opt.id && [
+                            styles.paymentChipActive,
+                            opt.isCredit && styles.paymentChipCredit,
+                          ],
+                        ]}
+                        onPress={() => setSelectedAccountId(id => id === opt.id ? '' : opt.id)}
+                      >
+                        <Text style={styles.paymentChipEmoji}>{opt.emoji}</Text>
+                        <View>
+                          <Text style={[
+                            styles.paymentChipLabel,
+                            selectedAccountId === opt.id && styles.paymentChipLabelActive,
+                          ]}>{opt.label}</Text>
+                          <Text style={styles.paymentChipSub}>{opt.sub}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  {/* Credit card warning */}
+                  {selectedAccountId && creditCardIds.has(selectedAccountId) && (() => {
+                    const opt = paymentOptions.find(p => p.id === selectedAccountId);
+                    const billDay = accounts.creditCards.find(c => c.id === selectedAccountId)?.billDate;
+                    return (
+                      <View style={styles.ccEmiNote}>
+                        <Text style={styles.ccEmiNoteText}>
+                          💳 Each time you mark this EMI paid, ₹{form.principal && form.roi && form.tenureMonths
+                            ? formatINR(calculateEMI(parseFloat(form.principal), parseFloat(form.roi || '0'), parseInt(form.tenureMonths)))
+                            : '...'} will be added to {opt?.label ?? 'the card'}'s billing cycle
+                          {billDay ? ` (bill closes on ${billDay.getDate()}th)` : ''}.
+                        </Text>
+                      </View>
+                    );
+                  })()}
+                </View>
+              )}
+
+              <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.8}>
+                <Text style={styles.saveBtnText}>{editingLoanId ? 'Update Loan' : 'Add Loan'}</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -516,6 +866,135 @@ const styles = StyleSheet.create({
     fontSize: FontSize.base,
     letterSpacing: 0.4,
   },
+
+  // Unknown interest toggle
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.bgCard,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.base,
+    marginTop: Spacing.base,
+  },
+  toggleLabelCol: { flex: 1, marginRight: Spacing.base },
+  toggleTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textPrimary,
+  },
+  toggleSub: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  inputHighlight: {
+    borderColor: Colors.primary,
+    borderWidth: 1.5,
+  },
+  inputHighlightWarning: {
+    borderColor: Colors.warning,
+    borderWidth: 1.5,
+  },
+
+  // Tenure info card
+  tenureInfoCard: {
+    marginTop: Spacing.base,
+    backgroundColor: Colors.bgCard,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: `${Colors.warning}30`,
+    padding: Spacing.base,
+    gap: Spacing.sm,
+  },
+  tenureInfoTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+    color: Colors.textPrimary,
+    marginBottom: 4,
+  },
+  tenureInfoRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+  },
+  tenureInfoItem: {
+    flex: 1,
+    backgroundColor: Colors.bgElevated,
+    borderRadius: Radius.sm,
+    padding: Spacing.sm,
+    alignItems: 'center',
+  },
+  tenureInfoItemMid: {
+    borderWidth: 1,
+    borderColor: `${Colors.danger}25`,
+  },
+  tenureInfoLabel: {
+    fontSize: 9,
+    fontWeight: FontWeight.bold,
+    color: Colors.textMuted,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  tenureInfoValue: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    color: Colors.textPrimary,
+    textAlign: 'center',
+  },
+  tenureProgressRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  tenureProgressText: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  tenureProgressPct: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    color: Colors.warning,
+  },
+
+  // Payment method styles
+  paymentBadgeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: `${Colors.warning}10`,
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: `${Colors.warning}25`,
+    alignSelf: 'flex-start',
+  },
+  paymentBadgeEmoji: { fontSize: 12 },
+  paymentBadgeText: { fontSize: 10, fontWeight: FontWeight.semibold },
+  paymentHint: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
+  paymentChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: Spacing.base, paddingVertical: Spacing.sm,
+    borderRadius: Radius.md, borderWidth: 1.5,
+    borderColor: Colors.border, backgroundColor: Colors.bgCard,
+    marginRight: 8,
+  },
+  paymentChipActive: { backgroundColor: `${Colors.info}18`, borderColor: Colors.info },
+  paymentChipCredit: { backgroundColor: `${Colors.warning}18`, borderColor: Colors.warning },
+  paymentChipEmoji: { fontSize: 16 },
+  paymentChipLabel: { fontSize: FontSize.xs, fontWeight: FontWeight.semibold, color: Colors.textSecondary },
+  paymentChipLabelActive: { color: Colors.textPrimary, fontWeight: FontWeight.bold },
+  paymentChipSub: { fontSize: 10, color: Colors.textMuted, marginTop: 1 },
+  ccEmiNote: {
+    backgroundColor: `${Colors.warning}12`,
+    borderRadius: Radius.sm,
+    padding: Spacing.sm,
+    marginTop: Spacing.sm,
+    borderWidth: 1,
+    borderColor: `${Colors.warning}30`,
+  },
+  ccEmiNoteText: { fontSize: FontSize.xs, color: Colors.warning, fontWeight: FontWeight.medium, lineHeight: 18 },
 
   taxCard: { marginBottom: Spacing.base },
   taxTitle: { fontSize: FontSize.base, fontWeight: FontWeight.bold, color: Colors.textPrimary },

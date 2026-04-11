@@ -97,4 +97,39 @@ export class JointVentureStore {
     });
     await this.load();
   }
+
+  async deleteContribution(id: string) {
+    await db.jointContributions.database.write(async () => {
+      const c = await db.jointContributions.find(id);
+      await c.destroyPermanently();
+    });
+    await this.load();
+  }
+
+  async deleteProject(id: string) {
+    await db.jointProjects.database.write(async () => {
+      const p = await db.jointProjects.find(id);
+      // Delete associated members and contribs first (permanent destroy)
+      const [members, contribs] = await Promise.all([
+        db.jointMembers.query(Q.where('project_id', id)).fetch(),
+        db.jointContributions.query(Q.where('project_id', id)).fetch(),
+      ]);
+      for (const m of members) await m.destroyPermanently();
+      for (const c of contribs) await c.destroyPermanently();
+      await p.destroyPermanently();
+    });
+    await this.load();
+  }
+
+  async updateProject(id: string, data: { name?: string; description?: string; status?: string }) {
+    await db.jointProjects.database.write(async () => {
+      const p = await db.jointProjects.find(id) as any;
+      await p.update((_p: any) => {
+        if (data.name !== undefined) _p.name = data.name;
+        if (data.description !== undefined) _p.description = data.description;
+        if (data.status !== undefined) _p.status = data.status;
+      });
+    });
+    await this.load();
+  }
 }

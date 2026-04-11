@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const schema = appSchema({
-  version: 1,
+  version: 3,
   tables: [
     // ── Accounts & Cards ──────────────────────────────────────────────────
     tableSchema({
@@ -14,6 +14,8 @@ export const schema = appSchema({
         { name: 'card_type', type: 'string', isOptional: true },  // visa | mastercard | rupay
         { name: 'credit_limit', type: 'number', isOptional: true },
         { name: 'current_balance', type: 'number' },
+        { name: 'bill_date', type: 'number', isOptional: true }, // day of month bill is generated
+        { name: 'due_date', type: 'number', isOptional: true },  // day of month bill is due
         { name: 'created_at', type: 'number' },
       ],
     }),

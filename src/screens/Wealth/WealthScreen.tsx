@@ -17,7 +17,120 @@ const WealthScreen: React.FC = observer(() => {
   const [goalForm, setGoalForm] = useState({ name: '', targetAmount: '', targetDate: '', color: '#6C63FF' });
   const [chittyForm, setChittyForm] = useState({ name: '', monthlyInstallment: '', totalValue: '', durationMonths: '', startDate: new Date().toISOString().split('T')[0] });
   const [priceUpdate, setPriceUpdate] = useState({ stockId: '', price: '' });
-  const [goalFund, setGoalFund] = useState({ goalId: '', amount: '' });
+  const [goalFund, setGoalFund] = useState({ goalId: '', amount: '', accountId: '' });
+  const [chittyDividend, setChittyDividend] = useState({ chittyId: '', amount: '', accountId: '' });
+  const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
+  const [editingStockId, setEditingStockId] = useState<string | null>(null);
+  const [editingChittyId, setEditingChittyId] = useState<string | null>(null);
+
+  const resetGoalForm = () => {
+    setEditingGoalId(null);
+    setGoalForm({ name: '', targetAmount: '', targetDate: '', color: '#6C63FF' });
+  };
+  const resetStockForm = () => {
+    setEditingStockId(null);
+    setStockForm({ symbol: '', name: '', quantity: '', avgBuyPrice: '', currentPrice: '' });
+  };
+  const resetChittyForm = () => {
+    setEditingChittyId(null);
+    setChittyForm({ name: '', monthlyInstallment: '', totalValue: '', durationMonths: '', startDate: new Date().toISOString().split('T')[0] });
+  };
+
+  const startEditGoal = (g: any) => {
+    setEditingGoalId(g.id);
+    setGoalForm({
+      name: g.name,
+      targetAmount: String(g.targetAmount),
+      targetDate: g.targetDate ? new Date(g.targetDate).toISOString().split('T')[0] : '',
+      color: g.color || '#6C63FF',
+    });
+    setShowModal('goal_add');
+  };
+
+  const startEditStock = (s: any) => {
+    setEditingStockId(s.id);
+    setStockForm({
+      symbol: s.symbol,
+      name: s.name,
+      quantity: String(s.quantity),
+      avgBuyPrice: String(s.avgBuyPrice),
+      currentPrice: String(s.currentPrice),
+    });
+    setShowModal('stock_add');
+  };
+
+  const startEditChitty = (c: any) => {
+    setEditingChittyId(c.id);
+    setChittyForm({
+      name: c.name,
+      monthlyInstallment: String(c.monthlyInstallment),
+      totalValue: String(c.totalValue),
+      durationMonths: String(c.durationMonths),
+      startDate: c.startDate ? new Date(c.startDate).toISOString().split('T')[0] : '',
+    });
+    setShowModal('chitty_add');
+  };
+
+  const handleSaveStock = async () => {
+    if (!stockForm.symbol || !stockForm.quantity || !stockForm.avgBuyPrice) {
+      Alert.alert('Error', 'Symbol, quantity and avg price required'); return;
+    }
+    const data = {
+      symbol: stockForm.symbol.toUpperCase(),
+      name: stockForm.name || stockForm.symbol.toUpperCase(),
+      quantity: parseFloat(stockForm.quantity),
+      avgBuyPrice: parseFloat(stockForm.avgBuyPrice),
+      currentPrice: parseFloat(stockForm.currentPrice) || parseFloat(stockForm.avgBuyPrice),
+    };
+    if (editingStockId) {
+      await wealth.deleteStock(editingStockId);
+      await wealth.addStock(data);
+    } else {
+      await wealth.addStock(data);
+    }
+    setShowModal(null);
+    resetStockForm();
+  };
+
+  const handleSaveGoal = async () => {
+    if (!goalForm.name || !goalForm.targetAmount) {
+      Alert.alert('Error', 'Name and target amount required'); return;
+    }
+    const data = {
+      name: goalForm.name,
+      targetAmount: parseFloat(goalForm.targetAmount),
+      targetDate: goalForm.targetDate ? new Date(goalForm.targetDate) : new Date(Date.now() + 365 * 86400000),
+      color: goalForm.color,
+    };
+    if (editingGoalId) {
+      await wealth.updateGoal(editingGoalId, data);
+    } else {
+      await wealth.addGoal(data);
+    }
+    setShowModal(null);
+    resetGoalForm();
+  };
+
+  const handleSaveChitty = async () => {
+    if (!chittyForm.name || !chittyForm.monthlyInstallment) {
+      Alert.alert('Error', 'Name and monthly installment required'); return;
+    }
+    const data = {
+      name: chittyForm.name,
+      monthlyInstallment: parseFloat(chittyForm.monthlyInstallment),
+      totalValue: parseFloat(chittyForm.totalValue) || 0,
+      durationMonths: parseInt(chittyForm.durationMonths) || 12,
+      startDate: new Date(chittyForm.startDate),
+    };
+    if (editingChittyId) {
+      await wealth.updateChitty(editingChittyId, data);
+    } else {
+      await wealth.addChitty(data);
+    }
+    setShowModal(null);
+    resetChittyForm();
+  };
+
   // Retirement planner state
   const [retForm, setRetForm] = useState({ currentAge: '30', retireAge: '60', monthlyContrib: '', expectedReturn: '12', inflation: '6' });
 
@@ -31,46 +144,7 @@ const WealthScreen: React.FC = observer(() => {
     { key: 'planner', label: '🏡 Property' },
   ] as const;
 
-  const handleAddStock = async () => {
-    if (!stockForm.symbol || !stockForm.quantity || !stockForm.avgBuyPrice) {
-      Alert.alert('Error', 'Symbol, quantity and avg price required'); return;
-    }
-    await wealth.addStock({
-      symbol: stockForm.symbol.toUpperCase(),
-      name: stockForm.name || stockForm.symbol.toUpperCase(),
-      quantity: parseFloat(stockForm.quantity),
-      avgBuyPrice: parseFloat(stockForm.avgBuyPrice),
-      currentPrice: parseFloat(stockForm.currentPrice) || parseFloat(stockForm.avgBuyPrice),
-    });
-    setShowModal(null);
-  };
-
-  const handleAddGoal = async () => {
-    if (!goalForm.name || !goalForm.targetAmount) {
-      Alert.alert('Error', 'Name and target amount required'); return;
-    }
-    await wealth.addGoal({
-      name: goalForm.name,
-      targetAmount: parseFloat(goalForm.targetAmount),
-      targetDate: goalForm.targetDate ? new Date(goalForm.targetDate) : new Date(Date.now() + 365 * 86400000),
-      color: goalForm.color,
-    });
-    setShowModal(null);
-  };
-
-  const handleAddChitty = async () => {
-    if (!chittyForm.name || !chittyForm.monthlyInstallment) {
-      Alert.alert('Error', 'Name and monthly installment required'); return;
-    }
-    await wealth.addChitty({
-      name: chittyForm.name,
-      monthlyInstallment: parseFloat(chittyForm.monthlyInstallment),
-      totalValue: parseFloat(chittyForm.totalValue) || 0,
-      durationMonths: parseInt(chittyForm.durationMonths) || 12,
-      startDate: new Date(chittyForm.startDate),
-    });
-    setShowModal(null);
-  };
+  // handled by handleSaveStock/Goal/Chitty now
 
   // Retirement calculation
   const retYears = parseInt(retForm.retireAge) - parseInt(retForm.currentAge);
@@ -162,30 +236,36 @@ const WealthScreen: React.FC = observer(() => {
                 const { value: pnl, pct } = wealth.stockPnL(stock);
                 return (
                   <Card key={stock.id} style={styles.stockCard}>
-                    <View style={styles.stockRow}>
-                      <View>
-                        <Text style={styles.stockSymbol}>{stock.symbol}</Text>
-                        <Text style={styles.stockName}>{stock.name}</Text>
-                        <Text style={styles.stockQty}>{stock.quantity} shares @ ₹{formatINR(stock.avgBuyPrice)}</Text>
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onLongPress={() => {
+                        Alert.alert('Manage Stock', stock.name, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Update Price', onPress: () => { setPriceUpdate({ stockId: stock.id, price: String(stock.currentPrice) }); setShowModal('updatePrice'); } },
+                          { text: 'Edit Info', onPress: () => startEditStock(stock) },
+                          { text: 'Delete', style: 'destructive', onPress: () => wealth.deleteStock(stock.id) },
+                        ]);
+                      }}
+                    >
+                      <View style={styles.stockRow}>
+                        <View>
+                          <Text style={styles.stockSymbol}>{stock.symbol}</Text>
+                          <Text style={styles.stockName}>{stock.name}</Text>
+                          <Text style={styles.stockQty}>{stock.quantity} shares @ ₹{formatINR(stock.avgBuyPrice)}</Text>
+                        </View>
+                        <View style={styles.stockRight}>
+                          <Text style={styles.stockCurrentPrice}>₹{formatINR(stock.currentPrice)}</Text>
+                          <Badge
+                            label={`${pnl >= 0 ? '+' : ''}${pct.toFixed(1)}%`}
+                            color={pnl >= 0 ? Colors.success : Colors.danger}
+                            bgColor={pnl >= 0 ? Colors.successDim : Colors.dangerDim}
+                          />
+                        </View>
                       </View>
-                      <View style={styles.stockRight}>
-                        <Text style={styles.stockCurrentPrice}>₹{formatINR(stock.currentPrice)}</Text>
-                        <Badge
-                          label={`${pnl >= 0 ? '+' : ''}${pct.toFixed(1)}%`}
-                          color={pnl >= 0 ? Colors.success : Colors.danger}
-                          bgColor={pnl >= 0 ? Colors.successDim : Colors.dangerDim}
-                        />
-                        <TouchableOpacity
-                          style={styles.updatePriceBtn}
-                          onPress={() => { setPriceUpdate({ stockId: stock.id, price: String(stock.currentPrice) }); setShowModal('updatePrice'); }}
-                        >
-                          <Text style={styles.updatePriceBtnText}>Update Price</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                    <Text style={styles.lastUpdated}>
-                      Last updated: {new Date(stock.lastUpdated).toLocaleDateString('en-IN')}
-                    </Text>
+                      <Text style={styles.lastUpdated}>
+                        Last updated: {new Date(stock.lastUpdated).toLocaleDateString('en-IN')}
+                      </Text>
+                    </TouchableOpacity>
                   </Card>
                 );
               })
@@ -208,30 +288,34 @@ const WealthScreen: React.FC = observer(() => {
                 const pct = wealth.goalProgress(goal);
                 const daysLeft = Math.ceil((new Date(goal.targetDate).getTime() - Date.now()) / 86400000);
                 return (
-                  <Card key={goal.id}
-                  //  style={[styles.goalCard, { borderLeftColor: goal.color, borderLeftWidth: 4 }]}
-                  >
-                    <View style={styles.goalRow}>
-                      <View style={styles.goalLeft}>
-                        <Text style={styles.goalName}>{goal.name}</Text>
-                        <Text style={styles.goalDays}>
-                          {daysLeft > 0 ? `${daysLeft} days left` : 'Deadline passed'}
-                        </Text>
-                      </View>
-                      <View style={styles.goalRight}>
-                        <Text style={[styles.goalPct, { color: goal.color }]}>{pct.toFixed(0)}%</Text>
-                      </View>
-                    </View>
-                    <ProgressBar pct={pct} color={goal.color} height={10} style={{ marginVertical: Spacing.sm }} />
-                    <View style={styles.goalAmounts}>
-                      <Text style={styles.goalSaved}>₹{formatINR(goal.currentAmount, true)} saved</Text>
-                      <Text style={styles.goalTarget}>of ₹{formatINR(goal.targetAmount, true)}</Text>
-                    </View>
+                  <Card key={goal.id}>
                     <TouchableOpacity
-                      style={styles.fundBtn}
-                      onPress={() => { setGoalFund({ goalId: goal.id, amount: '' }); setShowModal('fundGoal'); }}
+                      activeOpacity={0.7}
+                      onLongPress={() => {
+                        Alert.alert('Manage Goal', goal.name, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Fund Goal', onPress: () => { setGoalFund({ goalId: goal.id, amount: '', accountId: '' }); setShowModal('fundGoal'); } },
+                          { text: 'Edit', onPress: () => startEditGoal(goal) },
+                          { text: 'Delete', style: 'destructive', onPress: () => wealth.deleteGoal(goal.id) },
+                        ]);
+                      }}
                     >
-                      <Text style={styles.fundBtnText}>+ Add Funds</Text>
+                      <View style={styles.goalRow}>
+                        <View style={styles.goalLeft}>
+                          <Text style={styles.goalName}>{goal.name}</Text>
+                          <Text style={styles.goalDays}>
+                            {daysLeft > 0 ? `${daysLeft} days left` : 'Deadline passed'}
+                          </Text>
+                        </View>
+                        <View style={styles.goalRight}>
+                          <Text style={[styles.goalPct, { color: goal.color }]}>{pct.toFixed(0)}%</Text>
+                        </View>
+                      </View>
+                      <ProgressBar pct={pct} color={goal.color} height={10} style={{ marginVertical: Spacing.sm }} />
+                      <View style={styles.goalAmounts}>
+                        <Text style={styles.goalSaved}>₹{formatINR(goal.currentAmount, true)} saved</Text>
+                        <Text style={styles.goalTarget}>of ₹{formatINR(goal.targetAmount, true)}</Text>
+                      </View>
                     </TouchableOpacity>
                   </Card>
                 );
@@ -263,40 +347,42 @@ const WealthScreen: React.FC = observer(() => {
                 const netCost = totalPaid - chitty.auctionDividends;
                 return (
                   <Card key={chitty.id} style={styles.chittyCard}>
-                    <Text style={styles.chittyName}>{chitty.name}</Text>
-                    <View style={styles.chittyGrid}>
-                      <View style={styles.chittyItem}>
-                        <Text style={styles.chittyItemLabel}>Monthly</Text>
-                        <Text style={styles.chittyItemValue}>₹{formatINR(chitty.monthlyInstallment, true)}</Text>
-                      </View>
-                      <View style={styles.chittyItem}>
-                        <Text style={styles.chittyItemLabel}>Pot Value</Text>
-                        <Text style={styles.chittyItemValue}>₹{formatINR(chitty.totalValue, true)}</Text>
-                      </View>
-                      <View style={styles.chittyItem}>
-                        <Text style={styles.chittyItemLabel}>Total Paid</Text>
-                        <Text style={styles.chittyItemValue}>₹{formatINR(totalPaid, true)}</Text>
-                      </View>
-                      <View style={styles.chittyItem}>
-                        <Text style={styles.chittyItemLabel}>Dividends</Text>
-                        <Text style={[styles.chittyItemValue, { color: Colors.success }]}>₹{formatINR(chitty.auctionDividends, true)}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.chittyNetRow}>
-                      <Text style={styles.chittyNetLabel}>Net Cost to You</Text>
-                      <Text style={[styles.chittyNetValue, { color: netCost > 0 ? Colors.warning : Colors.success }]}>
-                        ₹{formatINR(Math.abs(netCost))}
-                      </Text>
-                    </View>
                     <TouchableOpacity
-                      style={styles.dividendBtn}
-                      onPress={() => {
-                        Alert.prompt?.('Add Auction Dividend', 'Enter dividend amount you received:', (val) => {
-                          if (val) wealth.addAuctionDividend(chitty.id, parseFloat(val));
-                        }, 'plain-text', '', 'decimal-pad');
+                      activeOpacity={0.7}
+                      onLongPress={() => {
+                        Alert.alert('Manage Chitty', chitty.name, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Record Auction Dividend', onPress: () => { setChittyDividend({ chittyId: chitty.id, amount: '', accountId: '' }); setShowModal('chittyDividend'); } },
+                          { text: 'Edit Info', onPress: () => startEditChitty(chitty) },
+                          { text: 'Delete', style: 'destructive', onPress: () => wealth.deleteChitty(chitty.id) },
+                        ]);
                       }}
                     >
-                      <Text style={styles.dividendBtnText}>+ Record Auction Dividend</Text>
+                      <Text style={styles.chittyName}>{chitty.name}</Text>
+                      <View style={styles.chittyGrid}>
+                        <View style={styles.chittyItem}>
+                          <Text style={styles.chittyItemLabel}>Monthly</Text>
+                          <Text style={styles.chittyItemValue}>₹{formatINR(chitty.monthlyInstallment, true)}</Text>
+                        </View>
+                        <View style={styles.chittyItem}>
+                          <Text style={styles.chittyItemLabel}>Pot Value</Text>
+                          <Text style={styles.chittyItemValue}>₹{formatINR(chitty.totalValue, true)}</Text>
+                        </View>
+                        <View style={styles.chittyItem}>
+                          <Text style={styles.chittyItemLabel}>Total Paid</Text>
+                          <Text style={styles.chittyItemValue}>₹{formatINR(totalPaid, true)}</Text>
+                        </View>
+                        <View style={styles.chittyItem}>
+                          <Text style={styles.chittyItemLabel}>Dividends</Text>
+                          <Text style={[styles.chittyItemValue, { color: Colors.success }]}>₹{formatINR(chitty.auctionDividends, true)}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.chittyNetRow}>
+                        <Text style={styles.chittyNetLabel}>Net Cost to You</Text>
+                        <Text style={[styles.chittyNetValue, { color: netCost > 0 ? Colors.warning : Colors.success }]}>
+                          ₹{formatINR(Math.abs(netCost))}
+                        </Text>
+                      </View>
                     </TouchableOpacity>
                   </Card>
                 );
@@ -389,8 +475,8 @@ const WealthScreen: React.FC = observer(() => {
       <Modal visible={showModal === 'stock'} animationType="slide" presentationStyle="pageSheet">
         <View style={styles.modal}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Add Stock Holding</Text>
-            <TouchableOpacity onPress={() => setShowModal(null)}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
+            <Text style={styles.modalTitle}>{editingStockId ? 'Edit Stock' : 'Add Stock Holding'}</Text>
+            <TouchableOpacity onPress={() => { setShowModal(null); resetStockForm(); }}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
           </View>
           <ScrollView style={{ padding: Spacing.base }}>
             <Text style={styles.infoNote}>⚠️ Stock prices must be updated manually (Phase 1 — no internet integration)</Text>
@@ -406,7 +492,7 @@ const WealthScreen: React.FC = observer(() => {
                 <TextInput style={styles.input} value={(stockForm as any)[key]} onChangeText={v => setStockForm(f => ({ ...f, [key]: v }))} placeholder={placeholder} placeholderTextColor={Colors.textMuted} keyboardType={(keyboard as any) ?? 'default'} autoCapitalize="characters" />
               </View>
             ))}
-            <TouchableOpacity style={styles.saveBtn} onPress={handleAddStock}><Text style={styles.saveBtnText}>Add Holding</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSaveStock}><Text style={styles.saveBtnText}>{editingStockId ? 'Update Holding' : 'Add Holding'}</Text></TouchableOpacity>
           </ScrollView>
         </View>
       </Modal>
@@ -430,8 +516,8 @@ const WealthScreen: React.FC = observer(() => {
       <Modal visible={showModal === 'goal'} animationType="slide" presentationStyle="pageSheet">
         <View style={styles.modal}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>New Savings Goal</Text>
-            <TouchableOpacity onPress={() => setShowModal(null)}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
+            <Text style={styles.modalTitle}>{editingGoalId ? 'Edit Goal' : 'New Savings Goal'}</Text>
+            <TouchableOpacity onPress={() => { setShowModal(null); resetGoalForm(); }}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
           </View>
           <ScrollView style={{ padding: Spacing.base }}>
             {[
@@ -450,7 +536,7 @@ const WealthScreen: React.FC = observer(() => {
                 <TouchableOpacity key={c} style={[styles.colorDot, { backgroundColor: c }, goalForm.color === c && styles.colorDotActive]} onPress={() => setGoalForm(f => ({ ...f, color: c }))} />
               ))}
             </View>
-            <TouchableOpacity style={styles.saveBtn} onPress={handleAddGoal}><Text style={styles.saveBtnText}>Create Goal</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSaveGoal}><Text style={styles.saveBtnText}>{editingGoalId ? 'Update Goal' : 'Create Goal'}</Text></TouchableOpacity>
           </ScrollView>
         </View>
       </Modal>
@@ -462,11 +548,120 @@ const WealthScreen: React.FC = observer(() => {
             <Text style={styles.modalTitle}>Add Funds to Goal</Text>
             <TouchableOpacity onPress={() => setShowModal(null)}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
           </View>
-          <View style={{ padding: Spacing.base }}>
+          <ScrollView style={{ padding: Spacing.base }}>
             <Text style={styles.inputLabel}>Amount (₹)</Text>
             <TextInput style={styles.input} value={goalFund.amount} onChangeText={v => setGoalFund(f => ({ ...f, amount: v }))} placeholder="0" placeholderTextColor={Colors.textMuted} keyboardType="decimal-pad" autoFocus />
-            <TouchableOpacity style={styles.saveBtn} onPress={async () => { await wealth.fundGoal(goalFund.goalId, parseFloat(goalFund.amount)); setShowModal(null); }}><Text style={styles.saveBtnText}>Add Funds</Text></TouchableOpacity>
+            
+            <Text style={styles.inputLabel}>Source Account</Text>
+            {accounts.debitAccounts.length === 0 ? (
+              <Text style={{ fontSize: FontSize.sm, color: Colors.danger }}>No accounts available to transfer from.</Text>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                {accounts.debitAccounts.map(opt => (
+                  <TouchableOpacity
+                    key={opt.id}
+                    style={[
+                      styles.paymentChip,
+                      goalFund.accountId === opt.id && styles.paymentChipActive,
+                    ]}
+                    onPress={() => setGoalFund(p => ({ ...p, accountId: opt.id }))}
+                  >
+                    <Text style={styles.paymentChipEmoji}>🏦</Text>
+                    <View>
+                      <Text style={[
+                        styles.paymentChipLabel,
+                        goalFund.accountId === opt.id && styles.paymentChipLabelActive,
+                      ]}>{opt.bankName}</Text>
+                      <Text style={styles.paymentChipSub}>₹{formatINR(opt.currentBalance)}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
+            <TouchableOpacity 
+              style={[styles.saveBtn, (!goalFund.accountId || !goalFund.amount) && { opacity: 0.5 }]} 
+              onPress={async () => { 
+                const amt = parseFloat(goalFund.amount);
+                if (!amt) return;
+                await wealth.fundGoal(goalFund.goalId, amt);
+                await budget.addTransaction({
+                  accountId: goalFund.accountId,
+                  amount: -amt,
+                  category: 'savings',
+                  subCategory: 'Goal Funding',
+                  date: new Date(),
+                  note: `Transferred to Goal`
+                });
+                setShowModal(null); 
+              }}
+              disabled={!goalFund.accountId || !goalFund.amount}
+            >
+              <Text style={styles.saveBtnText}>Add Funds & Deduct</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Record Chitty Dividend */}
+      <Modal visible={showModal === 'chittyDividend'} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.modal}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Record Auction Dividend</Text>
+            <TouchableOpacity onPress={() => setShowModal(null)}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
           </View>
+          <ScrollView style={{ padding: Spacing.base }}>
+            <Text style={styles.inputLabel}>Dividend Amount Received (₹)</Text>
+            <TextInput style={styles.input} value={chittyDividend.amount} onChangeText={v => setChittyDividend(f => ({ ...f, amount: v }))} placeholder="0" placeholderTextColor={Colors.textMuted} keyboardType="decimal-pad" autoFocus />
+            
+            <Text style={styles.inputLabel}>Deposit to Account</Text>
+            {accounts.debitAccounts.length === 0 ? (
+              <Text style={{ fontSize: FontSize.sm, color: Colors.danger }}>No accounts available to deposit to.</Text>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                {accounts.debitAccounts.map(opt => (
+                  <TouchableOpacity
+                    key={opt.id}
+                    style={[
+                      styles.paymentChip,
+                      chittyDividend.accountId === opt.id && styles.paymentChipActive,
+                    ]}
+                    onPress={() => setChittyDividend(p => ({ ...p, accountId: opt.id }))}
+                  >
+                    <Text style={styles.paymentChipEmoji}>🏦</Text>
+                    <View>
+                      <Text style={[
+                        styles.paymentChipLabel,
+                        chittyDividend.accountId === opt.id && styles.paymentChipLabelActive,
+                      ]}>{opt.bankName}</Text>
+                      <Text style={styles.paymentChipSub}>₹{formatINR(opt.currentBalance)}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
+            <TouchableOpacity 
+              style={[styles.saveBtn, (!chittyDividend.accountId || !chittyDividend.amount) && { opacity: 0.5 }]} 
+              onPress={async () => {
+                const amt = parseFloat(chittyDividend.amount);
+                if (!amt) return;
+                await wealth.addAuctionDividend(chittyDividend.chittyId, amt);
+                await budget.addTransaction({
+                  accountId: chittyDividend.accountId,
+                  amount: amt,
+                  category: 'savings',
+                  subCategory: 'Chitty Dividend',
+                  date: new Date(),
+                  note: `Dividend won`
+                });
+                setShowModal(null);
+              }}
+              disabled={!chittyDividend.accountId || !chittyDividend.amount}
+            >
+              <Text style={styles.saveBtnText}>Deposit Dividend</Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       </Modal>
 
@@ -474,8 +669,8 @@ const WealthScreen: React.FC = observer(() => {
       <Modal visible={showModal === 'chitty'} animationType="slide" presentationStyle="pageSheet">
         <View style={styles.modal}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Add Chitty / Kuri</Text>
-            <TouchableOpacity onPress={() => setShowModal(null)}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
+            <Text style={styles.modalTitle}>{editingChittyId ? 'Edit Chitty' : 'New Chitty Scheme'}</Text>
+            <TouchableOpacity onPress={() => { setShowModal(null); resetChittyForm(); }}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
           </View>
           <ScrollView style={{ padding: Spacing.base }}>
             {[
@@ -490,7 +685,7 @@ const WealthScreen: React.FC = observer(() => {
                 <TextInput style={styles.input} value={(chittyForm as any)[key]} onChangeText={v => setChittyForm(f => ({ ...f, [key]: v }))} placeholder={placeholder} placeholderTextColor={Colors.textMuted} keyboardType={(keyboard as any) ?? 'default'} />
               </View>
             ))}
-            <TouchableOpacity style={styles.saveBtn} onPress={handleAddChitty}><Text style={styles.saveBtnText}>Add Chitty</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSaveChitty}><Text style={styles.saveBtnText}>{editingChittyId ? 'Update Chitty' : 'Add Chitty'}</Text></TouchableOpacity>
           </ScrollView>
         </View>
       </Modal>
@@ -580,4 +775,16 @@ const styles = StyleSheet.create({
   colorDotActive: { borderWidth: 3, borderColor: Colors.textPrimary },
   saveBtn: { backgroundColor: Colors.primary, borderRadius: Radius.md, padding: Spacing.base, alignItems: 'center', marginTop: Spacing.xl, marginBottom: Spacing.xxl },
   saveBtnText: { color: Colors.textPrimary, fontWeight: FontWeight.bold, fontSize: FontSize.base },
+  paymentChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: Spacing.base, paddingVertical: Spacing.sm,
+    borderRadius: Radius.md, borderWidth: 1.5,
+    borderColor: Colors.border, backgroundColor: Colors.bgCard,
+    marginRight: 8,
+  },
+  paymentChipActive: { backgroundColor: `${Colors.info}18`, borderColor: Colors.info },
+  paymentChipEmoji: { fontSize: 16 },
+  paymentChipLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textSecondary },
+  paymentChipLabelActive: { color: Colors.textPrimary, fontWeight: FontWeight.bold },
+  paymentChipSub: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 1 },
 });

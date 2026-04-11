@@ -20,10 +20,34 @@ const JointVentureScreen: React.FC = observer(() => {
     coName: '', coPct: '50',
   });
   const [contribForm, setContribForm] = useState({
-    memberId: '', amount: '', description: '', isJointEmi: false,
+    memberId: '', amount: '', description: '', isJointEmi: false, accountId: '',
   });
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
 
-  const handleCreateProject = async () => {
+  const resetProjectForm = () => {
+    setEditingProjectId(null);
+    setProjectForm({
+      name: '', description: '', selfName: 'You', selfPct: '50', coName: '', coPct: '50',
+    });
+  };
+
+  const startEditProject = (p: any) => {
+    setEditingProjectId(p.id);
+    const members = jointVenture.members.get(p.id) ?? [];
+    const self = members.find(m => m.isSelf);
+    const co = members.find(m => !m.isSelf);
+    setProjectForm({
+      name: p.name,
+      description: p.description || '',
+      selfName: self?.name || 'You',
+      selfPct: String(self?.ownershipPct || '50'),
+      coName: co?.name || '',
+      coPct: String(co?.ownershipPct || '50'),
+    });
+    setShowNewProject(true);
+  };
+
+  const handleSaveProject = async () => {
     if (!projectForm.name || !projectForm.coName) {
       Alert.alert('Error', 'Project name and co-owner name required.'); return;
     }
@@ -32,32 +56,62 @@ const JointVentureScreen: React.FC = observer(() => {
     if (Math.abs(selfPct + coPct - 100) > 0.1) {
       Alert.alert('Error', 'Ownership percentages must add up to 100%.'); return;
     }
-    await jointVenture.createProject({
-      name: projectForm.name,
-      description: projectForm.description,
-      members: [
-        { name: projectForm.selfName, isSelf: true, ownershipPct: selfPct },
-        { name: projectForm.coName, isSelf: false, ownershipPct: coPct },
-      ],
-    });
+
+    if (editingProjectId) {
+      await jointVenture.updateProject(editingProjectId, {
+        name: projectForm.name,
+        description: projectForm.description,
+      });
+    } else {
+      await jointVenture.createProject({
+        name: projectForm.name,
+        description: projectForm.description,
+        members: [
+          { name: projectForm.selfName, isSelf: true, ownershipPct: selfPct },
+          { name: projectForm.coName, isSelf: false, ownershipPct: coPct },
+        ],
+      });
+    }
     setShowNewProject(false);
+    resetProjectForm();
   };
 
   const handleAddContrib = async () => {
     if (!contribForm.memberId || !contribForm.amount || !contribForm.description) {
       Alert.alert('Error', 'All fields required.'); return;
     }
+    const member = jointVenture.members.get(selectedProject || '')?.find(m => m.id === contribForm.memberId);
+    
+    if (member?.isSelf && !contribForm.accountId) {
+      Alert.alert('Error', 'Please select which of your accounts you paid from.'); return;
+    }
+
     if (!selectedProject) return;
+    const amt = parseFloat(contribForm.amount);
     await jointVenture.addContribution({
       projectId: selectedProject,
       memberId: contribForm.memberId,
-      amount: parseFloat(contribForm.amount),
+      amount: amt,
       description: contribForm.description,
       date: new Date(),
       isJointEmi: contribForm.isJointEmi,
     });
+
+    if (member?.isSelf && contribForm.accountId) {
+      const budget = useStores().budget;
+      await budget.addTransaction({
+        accountId: contribForm.accountId,
+        amount: -amt,
+        category: 'needs',
+        subCategory: 'Joint Project',
+        note: contribForm.description,
+        date: new Date(),
+        isJointExpense: true,
+      });
+    }
+
     setShowContrib(false);
-    setContribForm({ memberId: '', amount: '', description: '', isJointEmi: false });
+    setContribForm({ memberId: '', amount: '', description: '', isJointEmi: false, accountId: '' });
   };
 
   const activeProject = selectedProject
@@ -94,96 +148,45 @@ const JointVentureScreen: React.FC = observer(() => {
             description="Track shared assets like house construction, co-owned property, or family investments"
           />
         ) : (
-          jointVenture.projects.map(project => {
-            const s = jointVenture.settlement(project.id);
-            const members = jointVenture.members.get(project.id) ?? [];
-            const contribs = jointVenture.contributions.get(project.id) ?? [];
-            const totalSpend = contribs.reduce((sum, c) => sum + c.amount, 0);
-
-            return (
-              <Card key={project.id} style={styles.projectCard}>
-                {/* Header */}
+          jointVenture.projects.map(p => (
+            <Card key={p.id} style={styles.projectCard}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setSelectedProject(p.id)}
+                onLongPress={() => {
+                  Alert.alert('Manage Project', p.name, [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Edit Info', onPress: () => startEditProject(p) },
+                    {
+                      text: 'Delete', style: 'destructive', onPress: () => {
+                        Alert.alert('Delete Project', 'Delete this project and all its contributions?', [
+                          { text: 'No' },
+                          { text: 'Yes', onPress: () => jointVenture.deleteProject(p.id) }
+                        ]);
+                      }
+                    },
+                  ]);
+                }}
+              >
                 <View style={styles.projectHeader}>
                   <View style={styles.projectTitleRow}>
                     <View style={styles.projectIconBg}>
                       <Text style={{ fontSize: 20 }}>🤝</Text>
                     </View>
                     <View>
-                      <Text style={styles.projectName}>{project.name}</Text>
-                      {project.description
-                        ? <Text style={styles.projectDesc}>{project.description}</Text> : null}
+                      <Text style={styles.projectName}>{p.name}</Text>
+                      {p.description ? <Text style={styles.projectDesc}>{p.description}</Text> : null}
                     </View>
                   </View>
                   <Badge
-                    label={project.status.toUpperCase()}
-                    color={project.status === 'active' ? Colors.success : Colors.textMuted}
-                    bgColor={project.status === 'active' ? Colors.successDim : Colors.bgElevated}
+                    label={p.status.toUpperCase()}
+                    color={p.status === 'active' ? Colors.success : Colors.textMuted}
+                    bgColor={p.status === 'active' ? Colors.successDim : Colors.bgElevated}
                   />
                 </View>
-
-                {/* Ownership split */}
-                <View style={styles.ownershipRow}>
-                  {members.map(m => (
-                    <View
-                      key={m.id}
-                      style={[
-                        styles.ownerChip,
-                        m.isSelf && { borderColor: Colors.primary, borderWidth: 1.5 },
-                      ]}
-                    >
-                      <Text style={styles.ownerName}>{m.name}</Text>
-                      <Text style={[styles.ownerPct, m.isSelf && { color: Colors.primary }]}>
-                        {m.ownershipPct}%
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-
-                <Divider />
-
-                {/* Total spend + add button */}
-                <View style={styles.spendRow}>
-                  <View>
-                    <Text style={styles.spendLabel}>Total Project Spend</Text>
-                    <Text style={styles.spendValue}>₹{formatINR(totalSpend)}</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.contribBtn}
-                    onPress={() => { setSelectedProject(project.id); setShowContrib(true); }}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.contribBtnText}>+ Contribution</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Settlement banner */}
-                {s && (
-                  <View style={[
-                    styles.settlementBox,
-                    {
-                      backgroundColor: s.delta === 0
-                        ? Colors.successDim
-                        : s.delta > 0 ? Colors.infoDim : Colors.warningDim,
-                    },
-                  ]}>
-                    <Text style={[
-                      styles.settlementText,
-                      { color: s.delta === 0 ? Colors.success : s.delta > 0 ? Colors.info : Colors.warning },
-                    ]}>
-                      {s.settlementText}
-                    </Text>
-                    <Text style={styles.settlementSub}>
-                      You paid ₹{formatINR(s.selfPaid)} · Fair share: ₹{formatINR(s.selfFairShare)}
-                    </Text>
-                  </View>
-                )}
-
-                <TouchableOpacity onPress={() => setSelectedProject(project.id)} activeOpacity={0.7}>
-                  <Text style={styles.viewLedger}>View Contribution Ledger →</Text>
-                </TouchableOpacity>
-              </Card>
-            );
-          })
+              </TouchableOpacity>
+            </Card>
+          ))
         )}
 
         {/* ── Ledger Modal ──────────────────────────────── */}
@@ -217,27 +220,38 @@ const JointVentureScreen: React.FC = observer(() => {
                   .slice()
                   .sort((a, b) => +b.date - +a.date)
                   .map(c => {
-                    const member = activeMembers.find(m => m.id === c.memberId);
+                    const m = activeMembers.find(mem => mem.id === c.memberId);
                     return (
-                      <View key={c.id} style={styles.ledgerRow}>
-                        <View style={[
-                          styles.ledgerDot,
-                          { backgroundColor: member?.isSelf ? Colors.primary : Colors.warning },
-                        ]} />
-                        <View style={styles.ledgerContent}>
-                          <Text style={styles.ledgerDesc}>{c.description}</Text>
-                          <Text style={styles.ledgerMeta}>
-                            {member?.name ?? 'Unknown'} · {new Date(c.date).toLocaleDateString('en-IN')}
-                            {c.isJointEmi ? '  🔗 Joint EMI' : ''}
+                      <TouchableOpacity
+                        key={c.id}
+                        activeOpacity={0.7}
+                        onLongPress={() => {
+                          Alert.alert('Delete Contribution', 'Are you sure?', [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Delete', style: 'destructive', onPress: () => jointVenture.deleteContribution(c.id) },
+                          ]);
+                        }}
+                      >
+                        <View style={styles.ledgerRow}>
+                          <View style={[
+                            styles.ledgerDot,
+                            { backgroundColor: m?.isSelf ? Colors.primary : Colors.warning },
+                          ]} />
+                          <View style={styles.ledgerContent}>
+                            <Text style={styles.ledgerDesc}>{c.description}</Text>
+                            <Text style={styles.ledgerMeta}>
+                              {m?.name ?? 'Unknown'} · {new Date(c.date).toLocaleDateString('en-IN')}
+                              {c.isJointEmi ? '  🔗 Joint EMI' : ''}
+                            </Text>
+                          </View>
+                          <Text style={[
+                            styles.ledgerAmount,
+                            { color: m?.isSelf ? Colors.primary : Colors.warning },
+                          ]}>
+                            ₹{formatINR(c.amount)}
                           </Text>
                         </View>
-                        <Text style={[
-                          styles.ledgerAmount,
-                          { color: member?.isSelf ? Colors.primary : Colors.warning },
-                        ]}>
-                          ₹{formatINR(c.amount)}
-                        </Text>
-                      </View>
+                      </TouchableOpacity>
                     );
                   })
               )}
@@ -280,6 +294,37 @@ const JointVentureScreen: React.FC = observer(() => {
               <TextInput style={styles.input} value={contribForm.amount} onChangeText={v => setContribForm(f => ({ ...f, amount: v }))} placeholder="0" placeholderTextColor={Colors.textMuted} keyboardType="decimal-pad" />
               <Text style={styles.inputLabel}>Description *</Text>
               <TextInput style={styles.input} value={contribForm.description} onChangeText={v => setContribForm(f => ({ ...f, description: v }))} placeholder="e.g. Paid contractor for foundation work" placeholderTextColor={Colors.textMuted} />
+              
+              {activeMembers.find(m => m.id === contribForm.memberId)?.isSelf && (
+                <>
+                  <Text style={styles.inputLabel}>Paid from Account *</Text>
+                  {useStores().accounts.accounts.length === 0 ? (
+                    <Text style={{ fontSize: FontSize.sm, color: Colors.danger }}>No accounts available.</Text>
+                  ) : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                      {useStores().accounts.accounts.map(opt => (
+                        <TouchableOpacity
+                          key={opt.id}
+                          style={[
+                            styles.paymentChip,
+                            contribForm.accountId === opt.id && styles.paymentChipActive,
+                          ]}
+                          onPress={() => setContribForm(p => ({ ...p, accountId: opt.id }))}
+                        >
+                          <Text style={styles.paymentChipEmoji}>{opt.type === 'credit' ? '💳' : '🏦'}</Text>
+                          <View>
+                            <Text style={[
+                              styles.paymentChipLabel,
+                              contribForm.accountId === opt.id && styles.paymentChipLabelActive,
+                            ]}>{opt.bankName}</Text>
+                            <Text style={styles.paymentChipSub}>₹{formatINR(opt.currentBalance)}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  )}
+                </>
+              )}
               <TouchableOpacity
                 style={[styles.typeBtn, contribForm.isJointEmi && styles.typeBtnActive, { marginTop: Spacing.base, alignSelf: 'flex-start' }]}
                 onPress={() => setContribForm(f => ({ ...f, isJointEmi: !f.isJointEmi }))}
@@ -304,8 +349,8 @@ const JointVentureScreen: React.FC = observer(() => {
         <Modal visible={showNewProject} animationType="slide" presentationStyle="pageSheet">
           <View style={styles.modal}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>New Joint Project</Text>
-              <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowNewProject(false)}>
+              <Text style={styles.modalTitle}>{editingProjectId ? 'Edit Project' : 'Start Joint Project'}</Text>
+              <TouchableOpacity style={styles.modalCloseBtn} onPress={() => { setShowNewProject(false); resetProjectForm(); }}>
                 <Text style={styles.modalClose}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -335,8 +380,8 @@ const JointVentureScreen: React.FC = observer(() => {
                   ⚖️ Ownership must total 100%. Example: You 50% + Brother 50%.
                 </Text>
               </Card>
-              <TouchableOpacity style={styles.saveBtn} onPress={handleCreateProject} activeOpacity={0.8}>
-                <Text style={styles.saveBtnText}>Create Project</Text>
+              <TouchableOpacity style={styles.saveBtn} onPress={handleSaveProject} activeOpacity={0.8}>
+                <Text style={styles.saveBtnText}>{editingProjectId ? 'Update Project' : 'Create Project'}</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -480,4 +525,16 @@ const styles = StyleSheet.create({
     ...Shadow.glow,
   },
   saveBtnText: { color: Colors.textPrimary, fontWeight: FontWeight.black, fontSize: FontSize.base },
+  paymentChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: Spacing.base, paddingVertical: Spacing.sm,
+    borderRadius: Radius.md, borderWidth: 1.5,
+    borderColor: Colors.border, backgroundColor: Colors.bgCard,
+    marginRight: 8,
+  },
+  paymentChipActive: { backgroundColor: `${Colors.info}18`, borderColor: Colors.info },
+  paymentChipEmoji: { fontSize: 16 },
+  paymentChipLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textSecondary },
+  paymentChipLabelActive: { color: Colors.textPrimary, fontWeight: FontWeight.bold },
+  paymentChipSub: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 1 },
 });

@@ -15,15 +15,37 @@ const AccountsScreen: React.FC = observer(() => {
   const [form, setForm] = useState({
     name: '', type: 'debit', bankName: '',
     cardLast2: '', cardType: 'visa',
-    creditLimit: '', currentBalance: '',
+    creditLimit: '', currentBalance: '', billDate: '', dueDate: '',
   });
+  const [editingId, setEditingId] = useState<string | null>(null);
 
-  const handleAdd = async () => {
+  const startEdit = (acc: any) => {
+    setEditingId(acc.id);
+    setForm({
+      name: acc.name,
+      type: acc.type,
+      bankName: acc.bankName,
+      cardLast2: acc.cardLast2 || '',
+      cardType: acc.cardType || 'visa',
+      creditLimit: String(acc.creditLimit || ''),
+      currentBalance: String(acc.currentBalance || ''),
+      billDate: acc.billDate ? new Date(acc.billDate).toISOString().split('T')[0] : '',
+      dueDate: acc.dueDate ? new Date(acc.dueDate).toISOString().split('T')[0] : '',
+    });
+    setShowAddModal(true);
+  };
+
+  const resetForm = () => {
+    setEditingId(null);
+    setForm({ name: '', type: 'debit', bankName: '', cardLast2: '', cardType: 'visa', creditLimit: '', currentBalance: '', billDate: '', dueDate: '' });
+  };
+
+  const handleSave = async () => {
     if (!form.name || !form.bankName) {
       Alert.alert('Required', 'Please fill in account name and bank name.');
       return;
     }
-    await accounts.addAccount({
+    const data = {
       name: form.name,
       type: form.type,
       bankName: form.bankName,
@@ -31,9 +53,17 @@ const AccountsScreen: React.FC = observer(() => {
       cardType: form.type === 'credit' ? form.cardType : undefined,
       creditLimit: form.type === 'credit' ? parseFloat(form.creditLimit) || 0 : undefined,
       currentBalance: parseFloat(form.currentBalance) || 0,
-    });
+      billDate: form.type === 'credit' && form.billDate ? new Date(form.billDate) : undefined,
+      dueDate: form.type === 'credit' && form.dueDate ? new Date(form.dueDate) : undefined,
+    };
+
+    if (editingId) {
+      await accounts.updateAccount(editingId, data);
+    } else {
+      await accounts.addAccount(data);
+    }
     setShowAddModal(false);
-    setForm({ name: '', type: 'debit', bankName: '', cardLast2: '', cardType: 'visa', creditLimit: '', currentBalance: '' });
+    resetForm();
   };
 
   const totalLiquid = accounts.totalLiquid;
@@ -84,21 +114,32 @@ const AccountsScreen: React.FC = observer(() => {
         ) : (
           accounts.debitAccounts.map(acc => (
             <Card key={acc.id} style={styles.accountCard}>
-              <View style={styles.accountRow}>
-                <View style={[styles.accountIcon, { backgroundColor: Colors.infoDim }]}>
-                  <Text style={styles.accountEmoji}>🏦</Text>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onLongPress={() => {
+                  Alert.alert('Manage Account', acc.name, [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Edit', onPress: () => startEdit(acc) },
+                    { text: 'Delete', style: 'destructive', onPress: () => accounts.deleteAccount(acc.id) },
+                  ]);
+                }}
+              >
+                <View style={styles.accountRow}>
+                  <View style={[styles.accountIcon, { backgroundColor: Colors.infoDim }]}>
+                    <Text style={styles.accountEmoji}>🏦</Text>
+                  </View>
+                  <View style={styles.accountInfo}>
+                    <Text style={styles.accountName}>{acc.name}</Text>
+                    <Text style={styles.accountBank}>{acc.bankName}</Text>
+                  </View>
+                  <View style={styles.accountRight}>
+                    <Text style={[styles.accountBalance, { color: Colors.success }]}>
+                      ₹{formatINR(acc.currentBalance)}
+                    </Text>
+                    <Badge label="DEBIT" color={Colors.info} bgColor={Colors.infoDim} />
+                  </View>
                 </View>
-                <View style={styles.accountInfo}>
-                  <Text style={styles.accountName}>{acc.name}</Text>
-                  <Text style={styles.accountBank}>{acc.bankName}</Text>
-                </View>
-                <View style={styles.accountRight}>
-                  <Text style={[styles.accountBalance, { color: Colors.success }]}>
-                    ₹{formatINR(acc.currentBalance)}
-                  </Text>
-                  <Badge label="DEBIT" color={Colors.info} bgColor={Colors.infoDim} />
-                </View>
-              </View>
+              </TouchableOpacity>
             </Card>
           ))
         )}
@@ -114,42 +155,84 @@ const AccountsScreen: React.FC = observer(() => {
               ? (card.currentBalance / card.creditLimit) * 100 : 0;
             const utilColor = creditUtilizationColor(util);
             const utilLabel = util < 30 ? 'Healthy' : util < 50 ? 'Moderate' : 'High';
+            const today = new Date();
+            const bDay = card.billDate;
+            const dDay = card.dueDate;
+            
+            let nextDue: Date | null = null;
+            if (bDay) {
+              if (dDay) {
+                 nextDue = accounts.getNextDueDate(bDay, dDay);
+              } else {
+                 nextDue = accounts.getNextBillDate(bDay);
+              }
+            }
+            
+            const daysUntilDue = nextDue
+              ? Math.ceil((nextDue.getTime() - today.getTime()) / 86400000)
+              : null;
+
             return (
               <Card key={card.id} style={styles.creditCard}>
-                <View style={styles.accountRow}>
-                  <View style={[styles.accountIcon, { backgroundColor: `${utilColor}18` }]}>
-                    <Text style={styles.accountEmoji}>💳</Text>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onLongPress={() => {
+                    Alert.alert('Manage Card', card.bankName, [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Edit', onPress: () => startEdit(card) },
+                      { text: 'Delete', style: 'destructive', onPress: () => accounts.deleteAccount(card.id) },
+                    ]);
+                  }}
+                >
+                  <View style={styles.accountRow}>
+                    <View style={[styles.accountIcon, { backgroundColor: `${utilColor}18` }]}>
+                      <Text style={styles.accountEmoji}>💳</Text>
+                    </View>
+                    <View style={styles.accountInfo}>
+                      <Text style={styles.accountName}>{card.bankName} ···{card.cardLast2}</Text>
+                      <View style={styles.badgeRow}>
+                        <Badge
+                          label={card.cardType?.toUpperCase() ?? 'CARD'}
+                          color={Colors.textSecondary}
+                          bgColor={Colors.bgElevated}
+                        />
+                        {daysUntilDue !== null && (
+                          <Badge
+                            label={dDay ? `Due in ${daysUntilDue}d` : `Bill in ${daysUntilDue}d`}
+                            color={daysUntilDue <= 5 ? Colors.danger : Colors.warning}
+                            bgColor={daysUntilDue <= 5 ? `${Colors.danger}18` : `${Colors.warning}18`}
+                          />
+                        )}
+                      </View>
+                    </View>
+                    <View style={styles.accountRight}>
+                      <Text style={[styles.accountBalance, { color: utilColor }]}>
+                        {util.toFixed(0)}%
+                      </Text>
+                      <Badge label={utilLabel} color={utilColor} bgColor={`${utilColor}18`} />
+                    </View>
                   </View>
-                  <View style={styles.accountInfo}>
-                    <Text style={styles.accountName}>{card.bankName} ···{card.cardLast2}</Text>
-                    <Badge
-                      label={card.cardType?.toUpperCase() ?? 'CARD'}
-                      color={Colors.textSecondary}
-                      bgColor={Colors.bgElevated}
-                    />
+                  <View style={styles.utilDetails}>
+                    <View style={styles.utilRow}>
+                      <Text style={styles.utilLabel}>
+                        ₹{formatINR(card.currentBalance, true)} used of ₹{formatINR(card.creditLimit ?? 0, true)}
+                      </Text>
+                      <Text style={[styles.utilPct, { color: utilColor }]}>{util.toFixed(1)}%</Text>
+                    </View>
+                    <ProgressBar pct={util} color={utilColor} height={8} />
+                    <View style={styles.markers}>
+                      <Text style={styles.markerText}>0%</Text>
+                      <Text style={[styles.markerText, { color: Colors.warning }]}>30%</Text>
+                      <Text style={[styles.markerText, { color: Colors.danger }]}>50%</Text>
+                      <Text style={styles.markerText}>100%</Text>
+                    </View>
+                    {nextDue && (
+                      <Text style={styles.billDateInfo}>
+                        📅 {dDay ? 'Next due date' : 'Next bill'}: {nextDue.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </Text>
+                    )}
                   </View>
-                  <View style={styles.accountRight}>
-                    <Text style={[styles.accountBalance, { color: utilColor }]}>
-                      {util.toFixed(0)}%
-                    </Text>
-                    <Badge label={utilLabel} color={utilColor} bgColor={`${utilColor}18`} />
-                  </View>
-                </View>
-                <View style={styles.utilDetails}>
-                  <View style={styles.utilRow}>
-                    <Text style={styles.utilLabel}>
-                      ₹{formatINR(card.currentBalance, true)} used of ₹{formatINR(card.creditLimit ?? 0, true)}
-                    </Text>
-                    <Text style={[styles.utilPct, { color: utilColor }]}>{util.toFixed(1)}%</Text>
-                  </View>
-                  <ProgressBar pct={util} color={utilColor} height={8} />
-                  <View style={styles.markers}>
-                    <Text style={styles.markerText}>0%</Text>
-                    <Text style={[styles.markerText, { color: Colors.warning }]}>30%</Text>
-                    <Text style={[styles.markerText, { color: Colors.danger }]}>50%</Text>
-                    <Text style={styles.markerText}>100%</Text>
-                  </View>
-                </View>
+                </TouchableOpacity>
               </Card>
             );
           })
@@ -159,8 +242,8 @@ const AccountsScreen: React.FC = observer(() => {
         <Modal visible={showAddModal} animationType="slide" presentationStyle="pageSheet">
           <View style={styles.modal}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Account</Text>
-              <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowAddModal(false)}>
+              <Text style={styles.modalTitle}>{editingId ? 'Edit Account' : 'Add Account'}</Text>
+              <TouchableOpacity style={styles.modalCloseBtn} onPress={() => { setShowAddModal(false); resetForm(); }}>
                 <Text style={styles.modalClose}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -213,6 +296,7 @@ const AccountsScreen: React.FC = observer(() => {
                     maxLength={2}
                   />
                   <Text style={styles.securityNote}>🔒 Only last 2 digits stored for security</Text>
+
                   <Text style={styles.inputLabel}>Card Network</Text>
                   <View style={styles.typeRow}>
                     {['visa', 'mastercard', 'rupay'].map(n => (
@@ -227,6 +311,7 @@ const AccountsScreen: React.FC = observer(() => {
                       </TouchableOpacity>
                     ))}
                   </View>
+
                   <Text style={styles.inputLabel}>Credit Limit (₹)</Text>
                   <TextInput
                     style={styles.input}
@@ -236,11 +321,36 @@ const AccountsScreen: React.FC = observer(() => {
                     placeholderTextColor={Colors.textMuted}
                     keyboardType="decimal-pad"
                   />
+
+                  <Text style={styles.inputLabel}>📅 Bill Generation Date (YYYY-MM-DD)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={form.billDate}
+                    onChangeText={v => setForm(f => ({ ...f, billDate: v }))}
+                    placeholder="e.g. 2024-03-05"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="name-phone-pad"
+                    maxLength={10}
+                  />
+                  
+                  <Text style={styles.inputLabel}>📅 Payment Due Date (YYYY-MM-DD)</Text>
+                  <TextInput
+                    style={[styles.input, styles.inputHighlight]}
+                    value={form.dueDate}
+                    onChangeText={v => setForm(f => ({ ...f, dueDate: v }))}
+                    placeholder="e.g. 2024-03-25"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="name-phone-pad"
+                    maxLength={10}
+                  />
+                  <Text style={styles.billDateHint}>
+                    Spends are grouped by generation date. Alerts are based on due date.
+                  </Text>
                 </>
               )}
 
-              <TouchableOpacity style={styles.saveBtn} onPress={handleAdd} activeOpacity={0.8}>
-                <Text style={styles.saveBtnText}>Save Account</Text>
+              <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.8}>
+                <Text style={styles.saveBtnText}>{editingId ? 'Update Account' : 'Save Account'}</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -282,11 +392,8 @@ const styles = StyleSheet.create({
   creditCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.sm },
   accountRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   accountIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 46, height: 46, borderRadius: Radius.md,
+    alignItems: 'center', justifyContent: 'center',
   },
   accountEmoji: { fontSize: 20 },
   accountInfo: { flex: 1, gap: 4 },
@@ -294,12 +401,14 @@ const styles = StyleSheet.create({
   accountBank: { fontSize: FontSize.xs, color: Colors.textSecondary },
   accountRight: { alignItems: 'flex-end', gap: 4 },
   accountBalance: { fontSize: FontSize.md, fontWeight: FontWeight.black },
+  badgeRow: { flexDirection: 'row', gap: 4, flexWrap: 'wrap' },
   utilDetails: { marginTop: Spacing.sm },
   utilRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
   utilLabel: { fontSize: FontSize.xs, color: Colors.textSecondary },
   utilPct: { fontSize: FontSize.xs, fontWeight: FontWeight.bold },
   markers: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
   markerText: { fontSize: 10, color: Colors.textMuted },
+  billDateInfo: { fontSize: FontSize.xs, color: Colors.warning, marginTop: 6, fontWeight: FontWeight.semibold },
   modal: { flex: 1, backgroundColor: Colors.bg },
   modalHeader: {
     flexDirection: 'row',
@@ -312,56 +421,40 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.textPrimary },
   modalCloseBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 32, height: 32, borderRadius: 16,
     backgroundColor: Colors.bgElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
   modalClose: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: FontWeight.bold },
   modalBody: { padding: Spacing.base },
   inputLabel: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    marginBottom: Spacing.xs,
-    marginTop: Spacing.base,
+    fontSize: FontSize.sm, color: Colors.textSecondary,
+    marginBottom: Spacing.xs, marginTop: Spacing.base,
     fontWeight: FontWeight.semibold,
   },
   input: {
-    backgroundColor: Colors.bgCard,
-    borderRadius: Radius.md,
-    padding: Spacing.base,
-    color: Colors.textPrimary,
-    fontSize: FontSize.base,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    backgroundColor: Colors.bgCard, borderRadius: Radius.md,
+    padding: Spacing.base, color: Colors.textPrimary,
+    fontSize: FontSize.base, borderWidth: 1, borderColor: Colors.border,
   },
+  inputHighlight: { borderColor: Colors.warning, borderWidth: 1.5 },
   typeRow: { flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap', marginTop: 4 },
   typeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: Spacing.base,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.full,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    backgroundColor: Colors.bgCard,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: Spacing.base, paddingVertical: Spacing.sm,
+    borderRadius: Radius.full, borderWidth: 1.5,
+    borderColor: Colors.border, backgroundColor: Colors.bgCard,
   },
   typeBtnActive: { backgroundColor: `${Colors.primary}18`, borderColor: Colors.primary },
   typeBtnEmoji: { fontSize: 14 },
   typeBtnText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: FontWeight.medium },
   typeBtnTextActive: { color: Colors.textPrimary, fontWeight: FontWeight.bold },
   securityNote: { fontSize: FontSize.xs, color: Colors.success, marginTop: 6 },
+  billDateHint: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 6, lineHeight: 18 },
   saveBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: Radius.md,
-    padding: Spacing.base,
-    alignItems: 'center',
-    marginTop: Spacing.xl,
-    marginBottom: Spacing.xxl,
-    ...Shadow.glow,
+    backgroundColor: Colors.primary, borderRadius: Radius.md,
+    padding: Spacing.base, alignItems: 'center',
+    marginTop: Spacing.xl, marginBottom: Spacing.xxl, ...Shadow.glow,
   },
   saveBtnText: { color: Colors.textPrimary, fontWeight: FontWeight.black, fontSize: FontSize.base },
 });

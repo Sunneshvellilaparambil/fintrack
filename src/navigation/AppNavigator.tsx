@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { observer } from 'mobx-react-lite';
 import { useStores } from '../stores';
 import { Colors, FontSize, FontWeight } from '../theme';
@@ -15,6 +16,7 @@ import BudgetScreen from '../screens/Budget/BudgetScreen';
 import EMIScreen from '../screens/EMI/EMIScreen';
 import JointVentureScreen from '../screens/JointVenture/JointVentureScreen';
 import WealthScreen from '../screens/Wealth/WealthScreen';
+import VehicleScreen from '../screens/Vehicles/VehicleScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -26,51 +28,55 @@ const TAB_ICONS: Record<string, { active: string; inactive: string }> = {
   EMI:       { active: '📅', inactive: '📅' },
   Joint:     { active: '🤝', inactive: '🤝' },
   Wealth:    { active: '📈', inactive: '📈' },
+  Vehicles:  { active: '🚗', inactive: '🚗' },
 };
 
-const MainTabs = () => (
-  <Tab.Navigator
-    screenOptions={({ route }) => ({
-      tabBarIcon: ({ focused }) => (
-        <View style={{
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: 40,
-          height: 32,
-          borderRadius: 16,
-          backgroundColor: focused ? `${Colors.primary}22` : 'transparent',
-        }}>
-          <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.45 }}>
-            {TAB_ICONS[route.name]?.active ?? '●'}
+const MainTabs = () => {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        tabBarIcon: ({ focused }) => (
+          <View style={{
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 40,
+            height: 32,
+            borderRadius: 16,
+            backgroundColor: focused ? `${Colors.primary}22` : 'transparent',
+          }}>
+            <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.45 }}>
+              {TAB_ICONS[route.name]?.active ?? '●'}
+            </Text>
+          </View>
+        ),
+        tabBarLabel: ({ focused, children }) => (
+          <Text style={{
+            fontSize: 10,
+            color: focused ? Colors.primaryLight : Colors.textMuted,
+            fontWeight: focused ? FontWeight.bold : FontWeight.regular,
+            marginBottom: 2,
+            letterSpacing: 0.2,
+          }}>
+            {children}
           </Text>
-        </View>
-      ),
-      tabBarLabel: ({ focused, children }) => (
-        <Text style={{
-          fontSize: 10,
-          color: focused ? Colors.primaryLight : Colors.textMuted,
-          fontWeight: focused ? FontWeight.bold : FontWeight.regular,
-          marginBottom: 2,
-          letterSpacing: 0.2,
-        }}>
-          {children}
-        </Text>
-      ),
-      tabBarStyle: {
-        backgroundColor: Colors.bgCard,
-        borderTopColor: Colors.border,
-        borderTopWidth: 1,
-        height: 72,
-        paddingTop: 8,
-        paddingBottom: 12,
-        elevation: 20,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
-      },
-      tabBarActiveTintColor: Colors.primaryLight,
-      tabBarInactiveTintColor: Colors.textMuted,
+        ),
+        tabBarStyle: {
+          backgroundColor: Colors.bgCard,
+          borderTopColor: Colors.border,
+          borderTopWidth: 1,
+          height: 64 + insets.bottom,
+          paddingTop: 8,
+          paddingBottom: Math.max(8, insets.bottom),
+          elevation: 20,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -4 },
+          shadowOpacity: 0.3,
+          shadowRadius: 12,
+        },
+        tabBarActiveTintColor: Colors.primaryLight,
+        tabBarInactiveTintColor: Colors.textMuted,
       headerStyle: {
         backgroundColor: Colors.bg,
         borderBottomColor: Colors.border,
@@ -93,8 +99,10 @@ const MainTabs = () => (
     <Tab.Screen name="EMI" component={EMIScreen} options={{ title: 'EMI Hub' }} />
     <Tab.Screen name="Joint" component={JointVentureScreen} options={{ title: 'Joint' }} />
     <Tab.Screen name="Wealth" component={WealthScreen} />
-  </Tab.Navigator>
-);
+    <Tab.Screen name="Vehicles" component={VehicleScreen} />
+    </Tab.Navigator>
+  );
+};
 
 const AppNavigator: React.FC = observer(() => {
   const { auth } = useStores();
