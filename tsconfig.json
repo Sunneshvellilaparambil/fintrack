@@ -1,0 +1,19 @@
+{
+  "extends": "@react-native/typescript-config",
+  "compilerOptions": {
+    "types": [
+      "jest"
+    ],
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": false
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/Pods"
+  ]
+}
