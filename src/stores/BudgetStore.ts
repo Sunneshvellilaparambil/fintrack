@@ -63,7 +63,7 @@ export class BudgetStore {
     await db.transactions.database.write(async () => {
       // 1. Log transaction
       await db.transactions.create((t: any) => {
-        t.accountId = data.accountId;
+        t.account.id = data.accountId;
         t.amount = data.amount;
         t.category = data.category;
         t.subCategory = data.subCategory;
@@ -77,9 +77,11 @@ export class BudgetStore {
         const acc = await db.accounts.find(data.accountId) as any;
         if (acc) {
           await acc.update((_acc: any) => {
-            // For credit cards: spending (negative amount) INCREASES the balance owed.
+            // For credit cards, balance is now dynamically calculated.
             // For debit: spending (negative amount) DECREASES the cash balance.
-            _acc.currentBalance += (_acc.type === 'credit') ? -data.amount : data.amount;
+            if (_acc.type !== 'credit') {
+              _acc.currentBalance += data.amount;
+            }
           });
         }
       } catch (e) {
@@ -94,7 +96,7 @@ export class BudgetStore {
     await db.transactions.database.write(async () => {
       const t = await db.transactions.find(id) as any;
       const amount = t.amount;
-      const accountId = t.accountId;
+      const accountId = t.account.id;
 
       // 1. Revert balance
       try {
@@ -103,8 +105,9 @@ export class BudgetStore {
           await acc.update((_acc: any) => {
             // To REVERT a transaction: 
             // If it was a debit expense (amount < 0), we ADD back the absolute amount.
-            // If it was a credit card spend (amount < 0), it INCREASED debt, so we SUBTRACT from balance.
-            _acc.currentBalance += (_acc.type === 'credit') ? amount : -amount;
+            if (_acc.type !== 'credit') {
+              _acc.currentBalance -= amount;
+            }
           });
         }
       } catch (e) {}
@@ -122,21 +125,23 @@ export class BudgetStore {
     await db.transactions.database.write(async () => {
       const t = await db.transactions.find(id) as any;
       const oldAmount = t.amount;
-      const oldAccountId = t.accountId;
+      const oldAccountId = t.account.id;
 
       // Revert old balance
       try {
         const oldAcc = await db.accounts.find(oldAccountId) as any;
         if (oldAcc) {
           await oldAcc.update((_acc: any) => {
-            _acc.currentBalance += (_acc.type === 'credit') ? oldAmount : -oldAmount;
+            if (_acc.type !== 'credit') {
+              _acc.currentBalance -= oldAmount;
+            }
           });
         }
       } catch (e) {}
 
       // Update T
       await t.update((_t: any) => {
-        if (data.accountId !== undefined) _t.accountId = data.accountId;
+        if (data.accountId !== undefined) _t.account.id = data.accountId;
         if (data.amount !== undefined) _t.amount = data.amount;
         if (data.category !== undefined) _t.category = data.category;
         if (data.subCategory !== undefined) _t.subCategory = data.subCategory;
@@ -151,7 +156,9 @@ export class BudgetStore {
         const newAcc = await db.accounts.find(newAccountId) as any;
         if (newAcc) {
           await newAcc.update((_acc: any) => {
-            _acc.currentBalance += (_acc.type === 'credit') ? -newAmount : newAmount;
+            if (_acc.type !== 'credit') {
+              _acc.currentBalance += newAmount;
+            }
           });
         }
       } catch (e) {}

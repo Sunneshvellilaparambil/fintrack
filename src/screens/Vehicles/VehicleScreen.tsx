@@ -9,23 +9,20 @@ import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '../../the
 import { Card, GlowCard, SectionHeader, EmptyState, Divider, Badge, MetricTile } from '../../components/shared';
 import { formatINR } from '../../utils/finance';
 
-const VehicleScreen: React.FC = observer(() => {
+const VehicleScreen: React.FC = observer(({ navigation }: any) => {
   const { vehicles, loans, accounts } = useStores();
   const [showAddModal, setShowAddModal] = useState(false);
-  const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null);
-  const [showLogModal, setShowLogModal] = useState(false);
 
   const [form, setForm] = useState({
     name: '', regNumber: '', odometer: '', insuranceDue: new Date().toISOString().split('T')[0], loanId: '',
-  });
-  const [logForm, setLogForm] = useState({
-    description: '', cost: '', odometer: '', date: new Date().toISOString().split('T')[0],
+    nextServiceType: 'km' as 'km' | 'date',
+    nextServiceValue: '',
   });
   const [editingVehicleId, setEditingId] = useState<string | null>(null);
 
   const resetForm = () => {
     setEditingId(null);
-    setForm({ name: '', regNumber: '', odometer: '', insuranceDue: new Date().toISOString().split('T')[0], loanId: '' });
+    setForm({ name: '', regNumber: '', odometer: '', insuranceDue: new Date().toISOString().split('T')[0], loanId: '', nextServiceType: 'km', nextServiceValue: '' });
   };
 
   const startEdit = (v: any) => {
@@ -36,6 +33,8 @@ const VehicleScreen: React.FC = observer(() => {
       odometer: String(v.odometer || '0'),
       insuranceDue: v.insuranceDue ? new Date(v.insuranceDue).toISOString().split('T')[0] : '',
       loanId: v.loanId || '',
+      nextServiceType: v.nextServiceDate ? 'date' : 'km',
+      nextServiceValue: v.nextServiceDate ? new Date(v.nextServiceDate).toISOString().split('T')[0] : v.nextServiceKm ? String(v.nextServiceKm) : '',
     });
     setShowAddModal(true);
   };
@@ -48,6 +47,8 @@ const VehicleScreen: React.FC = observer(() => {
       odometer: parseInt(form.odometer) || 0,
       insuranceDue: new Date(form.insuranceDue),
       loanId: form.loanId || undefined,
+      nextServiceDate: form.nextServiceType === 'date' && form.nextServiceValue ? new Date(form.nextServiceValue) : null,
+      nextServiceKm: form.nextServiceType === 'km' && form.nextServiceValue ? parseInt(form.nextServiceValue) : null,
     };
 
     if (editingVehicleId) {
@@ -58,24 +59,6 @@ const VehicleScreen: React.FC = observer(() => {
     setShowAddModal(false);
     resetForm();
   };
-
-  const handleSaveLog = async () => {
-    if (!selectedVehicle || !logForm.description || !logForm.cost) {
-      Alert.alert('Error', 'Description and cost required'); return;
-    }
-    await vehicles.addServiceLog({
-      vehicle_id: selectedVehicle,
-      description: logForm.description,
-      cost: parseFloat(logForm.cost),
-      odometer: parseInt(logForm.odometer) || 0,
-      date: new Date(logForm.date),
-    });
-    setShowLogModal(false);
-    setLogForm({ description: '', cost: '', odometer: '', date: new Date().toISOString().split('T')[0] });
-  };
-
-  const activeVehicle = selectedVehicle ? vehicles.vehicles.find(v => v.id === selectedVehicle) : null;
-  const logs = selectedVehicle ? (vehicles.serviceLogsByVehicle.get(selectedVehicle) ?? []) : [];
 
   return (
     <>
@@ -98,7 +81,7 @@ const VehicleScreen: React.FC = observer(() => {
               <TouchableOpacity 
                 key={v.id} 
                 activeOpacity={0.8}
-                onPress={() => setSelectedVehicle(v.id)}
+                onPress={() => navigation.navigate('VehicleDetail', { vehicleId: v.id })}
                 onLongPress={() => {
                   Alert.alert('Manage Vehicle', v.name, [
                     { text: 'Cancel', style: 'cancel' },
@@ -108,8 +91,8 @@ const VehicleScreen: React.FC = observer(() => {
                 }}
               >
                 <GlowCard 
-                  glowColor={selectedVehicle === v.id ? Colors.primary : Colors.bgElevated}
-                  style={StyleSheet.flatten([styles.vehicleCard, selectedVehicle === v.id && styles.activeCard]) as any}
+                  glowColor={Colors.bgElevated}
+                  style={styles.vehicleCard}
                 >
                   <View style={styles.cardHeader}>
                     <View style={styles.iconBg}><Text style={{ fontSize: 24 }}>{v.name.toLowerCase().includes('bike') ? '🏍️' : '🚗'}</Text></View>
@@ -120,48 +103,22 @@ const VehicleScreen: React.FC = observer(() => {
                     <View style={{ alignItems: 'flex-end' }}>
                       <Text style={styles.vOdo}>{v.odometer.toLocaleString()} km</Text>
                       {hasInsuranceDue && <Badge label="Insurance ⏳" color={Colors.warning} bgColor={`${Colors.warning}18`} />}
+                      {v.nextServiceKm ? (
+                        <Text style={{ fontSize: FontSize.xs, color: Colors.info, marginTop: 2 }}>Next Svc: {v.nextServiceKm} km</Text>
+                      ) : v.nextServiceDate ? (
+                        <Text style={{ fontSize: FontSize.xs, color: Colors.info, marginTop: 2 }}>Next Svc: {new Date(v.nextServiceDate).toLocaleDateString('en-IN')}</Text>
+                      ) : null}
                     </View>
                   </View>
                   <Divider style={{ marginVertical: Spacing.sm }} />
                   <View style={styles.cardStats}>
                     <MetricTile label="Maint. Cost" value={`₹${formatINR(totalCost)}`} color={Colors.info} />
-                    <MetricTile label="Logs" value={String(logs.length)} color={Colors.primaryLight} />
-                    <TouchableOpacity style={styles.logAddBtn} onPress={() => { setSelectedVehicle(v.id); setShowLogModal(true); }}>
-                      <Text style={styles.logAddText}>+ Log</Text>
-                    </TouchableOpacity>
+                    <MetricTile label="Logs" value={String(vehicles.serviceLogsByVehicle.get(v.id)?.length || 0)} color={Colors.primaryLight} />
                   </View>
                 </GlowCard>
               </TouchableOpacity>
             );
           })
-        )}
-
-        {activeVehicle && (
-          <View style={styles.logsSection}>
-            <SectionHeader title="Service History" />
-            {logs.length === 0 ? (
-              <Text style={styles.emptyLogs}>No service logs found for this vehicle.</Text>
-            ) : (
-              logs.sort((a,b) => b.date.getTime() - a.date.getTime()).map(log => (
-                <View key={log.id} style={styles.logRow}>
-                  <View style={styles.logPoint} />
-                  <View style={styles.logContent}>
-                    <View style={styles.logTop}>
-                      <Text style={styles.logDesc}>{log.description}</Text>
-                      <Text style={styles.logCost}>-₹{formatINR(log.cost)}</Text>
-                    </View>
-                    <View style={styles.logMeta}>
-                      <Text style={styles.logDate}>{new Date(log.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</Text>
-                      <Text style={styles.logOdo}>· {log.odometer.toLocaleString()} km</Text>
-                      <TouchableOpacity onPress={() => vehicles.deleteServiceLog(log.id)} style={{ marginLeft: 'auto' }}>
-                        <Text style={{ fontSize: 10, color: Colors.danger }}>Delete</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </View>
-              ))
-            )}
-          </View>
         )}
 
         <View style={{ height: Spacing.xxl }} />
@@ -184,29 +141,32 @@ const VehicleScreen: React.FC = observer(() => {
             <Text style={styles.inputLabel}>Insurance Due Date (YYYY-MM-DD)</Text>
             <TextInput style={styles.input} value={form.insuranceDue} onChangeText={v => setForm(f => ({ ...f, insuranceDue: v }))} placeholder="2024-12-31" placeholderTextColor={Colors.textMuted} />
             
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSaveVehicle}><Text style={styles.saveBtnText}>Save Vehicle</Text></TouchableOpacity>
-          </ScrollView>
-        </View>
-      </Modal>
-
-      {/* Add Log Modal */}
-      <Modal visible={showLogModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Service/Fuel Log</Text>
-            <TouchableOpacity onPress={() => setShowLogModal(false)} style={styles.closeBtn}><Text style={styles.closeText}>✕</Text></TouchableOpacity>
-          </View>
-          <ScrollView style={{ padding: Spacing.base }}>
-            <Text style={styles.inputLabel}>Description *</Text>
-            <TextInput style={styles.input} value={logForm.description} onChangeText={v => setLogForm(f => ({ ...f, description: v }))} placeholder="e.g. Full Service, Oil Change, Petrol" placeholderTextColor={Colors.textMuted} />
-            <Text style={styles.inputLabel}>Amount Paid (₹) *</Text>
-            <TextInput style={styles.input} value={logForm.cost} onChangeText={v => setLogForm(f => ({ ...f, cost: v }))} placeholder="0" placeholderTextColor={Colors.textMuted} keyboardType="decimal-pad" />
-            <Text style={styles.inputLabel}>Odometer Reading (km)</Text>
-            <TextInput style={styles.input} value={logForm.odometer} onChangeText={v => setLogForm(f => ({ ...f, odometer: v }))} placeholder="0" placeholderTextColor={Colors.textMuted} keyboardType="numeric" />
-            <Text style={styles.inputLabel}>Date (YYYY-MM-DD)</Text>
-            <TextInput style={styles.input} value={logForm.date} onChangeText={v => setLogForm(f => ({ ...f, date: v }))} placeholder="2024-05-18" placeholderTextColor={Colors.textMuted} />
+            <Text style={styles.inputLabel}>Next Service Trigger</Text>
+            <View style={{ flexDirection: 'row', backgroundColor: Colors.bgCard, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden' }}>
+              <TouchableOpacity 
+                style={{ flex: 1, padding: 10, alignItems: 'center', backgroundColor: form.nextServiceType === 'km' ? `${Colors.primary}20` : 'transparent' }}
+                onPress={() => setForm(f => ({ ...f, nextServiceType: 'km', nextServiceValue: '' }))}
+              >
+                <Text style={{ color: form.nextServiceType === 'km' ? Colors.primary : Colors.textSecondary, fontWeight: 'bold' }}>By Odometer (KM)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={{ flex: 1, padding: 10, alignItems: 'center', backgroundColor: form.nextServiceType === 'date' ? `${Colors.primary}20` : 'transparent' }}
+                onPress={() => setForm(f => ({ ...f, nextServiceType: 'date', nextServiceValue: '' }))}
+              >
+                <Text style={{ color: form.nextServiceType === 'date' ? Colors.primary : Colors.textSecondary, fontWeight: 'bold' }}>By Date</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.inputLabel}>{form.nextServiceType === 'km' ? 'Target Odometer (km)' : 'Target Date (YYYY-MM-DD)'}</Text>
+            <TextInput 
+              style={styles.input} 
+              value={form.nextServiceValue} 
+              onChangeText={v => setForm(f => ({ ...f, nextServiceValue: v }))} 
+              placeholder={form.nextServiceType === 'km' ? 'e.g. 15000' : 'e.g. 2024-12-31'} 
+              placeholderTextColor={Colors.textMuted} 
+              keyboardType={form.nextServiceType === 'km' ? 'numeric' : 'default'}
+            />
             
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSaveLog}><Text style={styles.saveBtnText}>Save Log Entry</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSaveVehicle}><Text style={styles.saveBtnText}>Save Vehicle</Text></TouchableOpacity>
           </ScrollView>
         </View>
       </Modal>

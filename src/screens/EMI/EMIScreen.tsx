@@ -284,10 +284,15 @@ const EMIScreen: React.FC = observer(() => {
                       const msg = isCC
                         ? `Mark ₹${formatINR(emi)} as paid?\n\n💳 EMI will also be added to ${payOpt?.label ?? 'your card'}'s bill cycle.`
                         : `Mark ₹${formatINR(emi)} as paid?`;
-                      Alert.alert('Mark EMI Paid', msg, [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Confirm', onPress: () => loans.markEMIPaid(loan.id, creditCardIds) },
-                      ]);
+                        Alert.alert('Mark EMI Paid', msg, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Confirm', onPress: async () => {
+                              await loans.markEMIPaid(loan.id, creditCardIds);
+                              if (isCC && payOpt?.id) {
+                                await accounts.recalculateCardBalance(payOpt.id);
+                              }
+                          }},
+                        ]);
                     }}
                   >
                     <Text style={styles.payBtnText}>✓  Mark This Month Paid</Text>
@@ -593,7 +598,7 @@ const EMIScreen: React.FC = observer(() => {
                           💳 Each time you mark this EMI paid, ₹{form.principal && form.roi && form.tenureMonths
                             ? formatINR(calculateEMI(parseFloat(form.principal), parseFloat(form.roi || '0'), parseInt(form.tenureMonths)))
                             : '...'} will be added to {opt?.label ?? 'the card'}'s billing cycle
-                          {billDay ? ` (bill closes on ${billDay.getDate()}th)` : ''}.
+                          {billDay ? ` (bill closes on ${billDay}th)` : ''}.
                         </Text>
                       </View>
                     );
@@ -601,7 +606,12 @@ const EMIScreen: React.FC = observer(() => {
                 </View>
               )}
 
-              <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.saveBtn} onPress={async () => {
+                await handleSave();
+                if (selectedAccountId && creditCardIds.has(selectedAccountId)) {
+                  await accounts.recalculateCardBalance(selectedAccountId);
+                }
+              }} activeOpacity={0.8}>
                 <Text style={styles.saveBtnText}>{editingLoanId ? 'Update Loan' : 'Add Loan'}</Text>
               </TouchableOpacity>
             </ScrollView>

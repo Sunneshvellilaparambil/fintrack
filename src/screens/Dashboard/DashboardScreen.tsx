@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import type { ViewStyle } from 'react-native';
 import { observer } from 'mobx-react-lite';
+import { runInAction } from 'mobx';
 import { useStores, loadAllStores } from '../../stores';
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '../../theme';
 import {
@@ -29,10 +30,9 @@ const monthName = () =>
 /* ─── screen ──────────────────────────────────────────────────────────── */
 
 const DashboardScreen: React.FC = observer(({ navigation }: any) => {
-  const { accounts, loans, budget } = useStores();
+  const { auth, accounts, loans, budget } = useStores();
   const [refreshing, setRefreshing] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
-  const [payBillData, setPayBillData] = React.useState<{ card: any, total: number, amount: string, sourceAccountId: string } | null>(null);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -69,38 +69,6 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
   const spendColor = spendRatio < 60 ? Colors.success
     : spendRatio < 90 ? Colors.warning : Colors.danger;
 
-  const handlePayBill = async () => {
-    if (!payBillData || !payBillData.sourceAccountId || !payBillData.amount) {
-      Alert.alert('Error', 'Please select a source account and enter an amount.');
-      return;
-    }
-    const amountNum = parseFloat(payBillData.amount);
-    if (isNaN(amountNum) || amountNum <= 0) return;
-
-    // 1. Expense from debit account
-    await budget.addTransaction({
-      accountId: payBillData.sourceAccountId,
-      amount: -amountNum,
-      category: 'needs',
-      subCategory: 'Credit Card Bill',
-      note: `Paid ${payBillData.card.bankName} ending in ${payBillData.card.cardLast2}`,
-      date: new Date(),
-    });
-
-    // 2. Payment received by credit card (Positive amount, which reduces its debt internally)
-    await budget.addTransaction({
-      accountId: payBillData.card.id,
-      amount: amountNum, 
-      category: 'needs',
-      subCategory: 'Bill Payment',
-      note: 'Payment Received',
-      date: new Date(),
-    });
-
-    setPayBillData(null);
-    Alert.alert('Success', 'Credit card bill paid successfully!');
-  };
-
   const today = new Date();
   const daysUntilEMI = (emiDay: number) => {
     const next = new Date(today.getFullYear(), today.getMonth(), emiDay);
@@ -129,32 +97,6 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
     .slice()
     .sort((a, b) => +new Date(b.date) - +new Date(a.date))
     .slice(0, 5);
-
-  // Credit card bill cycles — group transactions by card's account_id since cycle start
-  const creditBills = accounts.creditCards
-    .filter(c => c.billDate)
-    .map(card => {
-      const billDay = card.billDate!;
-      const dueDay = card.dueDate;
-      const cycleStart = accounts.getCycleStart(billDay);
-      const nextBill = accounts.getNextBillDate(billDay);
-      
-      let nextDue: Date | null = null;
-      if (dueDay) nextDue = accounts.getNextDueDate(billDay, dueDay);
-
-      const alertDate = nextDue ?? nextBill;
-      const daysLeft = Math.ceil((alertDate.getTime() - today.getTime()) / 86400000);
-      
-      const cycleSpends = budget.transactions.filter(t =>
-        t.accountId === card.id &&
-        new Date(t.date).getTime() >= cycleStart.getTime(),
-      );
-      // Expenses are negative, payments are positive.
-      // Total due is: (-expenses) - (payments) = -(expenses + payments)
-      const total = Math.max(0, cycleSpends.reduce((s, t) => s - t.amount, 0));
-      return { card, cycleStart, nextBill, nextDue, daysLeft, cycleSpends, total };
-    })
-    .filter(b => b.cycleSpends.length > 0 || true); // show all cards with bill date
 
   /* ── EMI bar data ────────────────────────────────────────────── */
   const emiBarData = loans.loans.slice(0, 6).map(l => ({
@@ -532,87 +474,7 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
           </>
         )}
 
-        {/* ── Credit Card Bills ─────────────────────────────── */}
-        {creditBills.length > 0 && (
-          <>
-            <SectionHeader
-              title="💳 Credit Card Bills"
-              action={
-                <TouchableOpacity
-                  style={styles.navBtn}
-                  onPress={() => navigation?.navigate?.('Accounts')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.navBtnText}>Manage →</Text>
-                </TouchableOpacity>
-              }
-            />
-            {creditBills.map(({ card, cycleStart, nextBill, nextDue, daysLeft, cycleSpends, total }) => {
-              const urgentColor = daysLeft <= 3 ? Colors.danger : daysLeft <= 7 ? Colors.warning : Colors.success;
-              const formatD = (d: Date) => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
-              return (
-                <Card key={card.id} style={StyleSheet.flatten([styles.billCard, { borderLeftColor: urgentColor, borderLeftWidth: 3 }]) as any}>
-                  {/* Header row */}
-                  <View style={styles.billHeaderRow}>
-                    <View style={styles.billCardLeft}>
-                      <Text style={styles.billCardTitle}>💳 {card.bankName} ···{card.cardLast2}</Text>
-                      <Text style={styles.billCycleLabel}>
-                        Cycle: {formatD(cycleStart)} → {formatD(nextBill)}
-                      </Text>
-                      {nextDue && (
-                        <Text style={[styles.billCycleLabel, { color: Colors.info, fontWeight: FontWeight.bold }]}>
-                          Due on {formatD(nextDue)}
-                        </Text>
-                      )}
-                    </View>
-                    <View style={styles.billCardRight}>
-                      <Text style={[styles.billDaysLeft, { color: urgentColor }]}>
-                        {daysLeft <= 0 ? (nextDue ? 'Due Today' : 'Bill Today') : `${daysLeft}d left`}
-                      </Text>
-                      <Text style={styles.billTotal}>₹{formatINR(total)}</Text>
-                    </View>
-                  </View>
 
-                  {/* Spends list */}
-                  {cycleSpends.length === 0 ? (
-                    <Text style={styles.noSpends}>No spends tagged to this card yet</Text>
-                  ) : (
-                    cycleSpends
-                      .slice()
-                      .sort((a, b) => +new Date(b.date) - +new Date(a.date))
-                      .slice(0, 5)
-                      .map((t, idx) => (
-                        <View key={t.id} style={StyleSheet.flatten([styles.billSpendRow, idx === 0 ? { borderTopWidth: 0 } : {}])}>
-                          <View style={styles.billSpendInfo}>
-                            <Text style={styles.billSpendSub}>{t.subCategory}</Text>
-                            <Text style={styles.billSpendDate}>
-                              {new Date(t.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                            </Text>
-                          </View>
-                          <Text style={[styles.billSpendAmt, { color: t.amount > 0 ? Colors.success : Colors.danger }]}>
-                            {t.amount > 0 ? '+' : '-'}₹{formatINR(Math.abs(t.amount))}
-                          </Text>
-                        </View>
-                      ))
-                  )}
-                  {cycleSpends.length > 5 && (
-                    <Text style={styles.moreTxns}>+{cycleSpends.length - 5} more spends</Text>
-                  )}
-
-                  {/* Pay button */}
-                  <TouchableOpacity
-                    style={[styles.payBtn, total <= 0 && { opacity: 0.5 }]}
-                    activeOpacity={0.8}
-                    disabled={total <= 0}
-                    onPress={() => setPayBillData({ card, total, amount: total.toString(), sourceAccountId: '' })}
-                  >
-                    <Text style={styles.payBtnText}>Pay Bill Amount</Text>
-                  </TouchableOpacity>
-                </Card>
-              );
-            })}
-          </>
-        )}
 
         {/* ── Recent Transactions ──────────────────────────────── */}
         {recentTxns.length > 0 && (
@@ -676,6 +538,37 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
           </View>
           <ScrollView contentContainerStyle={{ padding: Spacing.base }}>
             
+            <SectionHeader title="Profile Management" />
+            
+            <Card style={{ marginBottom: Spacing.base }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.base }}>
+                <Text style={{ fontSize: 32, marginRight: Spacing.sm }}>{auth.activeProfile?.emoji || '👤'}</Text>
+                <View>
+                  <Text style={{ fontSize: FontSize.sm, color: Colors.textSecondary }}>Current Profile</Text>
+                  <Text style={{ fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.textPrimary }}>
+                    {auth.activeProfile?.name || 'User'}
+                  </Text>
+                </View>
+              </View>
+              
+              <TouchableOpacity 
+                style={styles.actionBtn} 
+                activeOpacity={0.8} 
+                onPress={() => {
+                  setShowSettings(false);
+                  runInAction(() => {
+                    auth.activeProfile = null;
+                  });
+                }}
+              >
+                <Text style={styles.actionBtnEmoji}>🔄</Text>
+                <View>
+                  <Text style={styles.actionBtnLabel}>Switch Profile</Text>
+                  <Text style={styles.actionBtnSub}>Change to a different user profile</Text>
+                </View>
+              </TouchableOpacity>
+            </Card>
+
             <SectionHeader title="Data Management" />
             
             <Card style={{ marginBottom: Spacing.base }}>
@@ -694,7 +587,7 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
               <Divider style={{ marginVertical: Spacing.sm }} />
               
               <TouchableOpacity style={[styles.actionBtn, { marginTop: 4 }]} activeOpacity={0.8} onPress={importData}>
-                <Text style={styles.actionBtnEmoji}>🔄</Text>
+                <Text style={styles.actionBtnEmoji}>📥</Text>
                 <View>
                   <Text style={styles.actionBtnLabel}>Restore Data</Text>
                   <Text style={styles.actionBtnSub}>Load from a previous backup file</Text>
@@ -707,67 +600,6 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
         </View>
       </Modal>
 
-      {/* ── Pay Bill Modal ────────────────────────────────────── */}
-      <Modal visible={!!payBillData} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modalBg}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Pay Credit Card Bill</Text>
-            <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setPayBillData(null)}>
-              <Text style={styles.modalClose}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView contentContainerStyle={{ padding: Spacing.base }}>
-            <Card variant="accent" style={{ marginBottom: Spacing.base }}>
-              <Text style={styles.heroLabel}>Paying to</Text>
-              <Text style={styles.heroValue}>💳 {payBillData?.card?.bankName} ···{payBillData?.card?.cardLast2}</Text>
-            </Card>
-
-            <Text style={styles.inputLabel}>Amount to Pay (₹)</Text>
-            <TextInput
-              style={[styles.input, { fontSize: FontSize.xl, fontWeight: 'bold' }]}
-              value={payBillData?.amount}
-              onChangeText={(v: string) => setPayBillData(p => p ? { ...p, amount: v } : null)}
-              keyboardType="decimal-pad"
-            />
-
-            <Text style={styles.inputLabel}>Pay from Account</Text>
-            {accounts.debitAccounts.length === 0 ? (
-              <Text style={{ fontSize: FontSize.sm, color: Colors.danger }}>No debit accounts available to pay from. Please add an account.</Text>
-            ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
-                {accounts.debitAccounts.map(opt => (
-                  <TouchableOpacity
-                    key={opt.id}
-                    style={[
-                      styles.paymentChip,
-                      payBillData?.sourceAccountId === opt.id && styles.paymentChipActive,
-                    ]}
-                    onPress={() => setPayBillData(p => p ? { ...p, sourceAccountId: opt.id } : null)}
-                  >
-                    <Text style={styles.paymentChipEmoji}>🏦</Text>
-                    <View>
-                      <Text style={[
-                        styles.paymentChipLabel,
-                        payBillData?.sourceAccountId === opt.id && styles.paymentChipLabelActive,
-                      ]}>{opt.bankName}</Text>
-                      <Text style={styles.paymentChipSub}>₹{formatINR(opt.currentBalance)}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-
-            <TouchableOpacity 
-              style={[styles.saveBtn, !payBillData?.sourceAccountId && { opacity: 0.5 }]} 
-              onPress={handlePayBill} 
-              activeOpacity={0.8}
-              disabled={!payBillData?.sourceAccountId}
-            >
-              <Text style={styles.saveBtnText}>Confirm Payment</Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
-      </Modal>
     </>
   );
 });

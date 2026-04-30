@@ -85,6 +85,11 @@ const BudgetScreen: React.FC = observer(({ navigation }: any) => {
     } else {
       await budget.addTransaction(data);
     }
+
+    if (data.accountId && accounts.creditCards.some(c => c.id === data.accountId)) {
+      await accounts.recalculateCardBalance(data.accountId);
+    }
+
     setShowAddTxn(false);
     resetTxnForm();
   };

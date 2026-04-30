@@ -29,8 +29,8 @@ const AccountsScreen: React.FC = observer(() => {
       cardType: acc.cardType || 'visa',
       creditLimit: String(acc.creditLimit || ''),
       currentBalance: String(acc.currentBalance || ''),
-      billDate: acc.billDate ? new Date(acc.billDate).toISOString().split('T')[0] : '',
-      dueDate: acc.dueDate ? new Date(acc.dueDate).toISOString().split('T')[0] : '',
+      billDate: acc.billDate ? String(acc.billDate) : '',
+      dueDate: acc.dueDate ? String(acc.dueDate) : '',
     });
     setShowAddModal(true);
   };
@@ -45,6 +45,19 @@ const AccountsScreen: React.FC = observer(() => {
       Alert.alert('Required', 'Please fill in account name and bank name.');
       return;
     }
+    const bDateNum = parseInt(form.billDate, 10);
+    const dDateNum = parseInt(form.dueDate, 10);
+    if (form.type === 'credit') {
+      if (bDateNum && (bDateNum < 1 || bDateNum > 31)) {
+        Alert.alert('Invalid', 'Bill generation day must be between 1 and 31.');
+        return;
+      }
+      if (dDateNum && (dDateNum < 1 || dDateNum > 31)) {
+        Alert.alert('Invalid', 'Due day must be between 1 and 31.');
+        return;
+      }
+    }
+
     const data = {
       name: form.name,
       type: form.type,
@@ -53,8 +66,8 @@ const AccountsScreen: React.FC = observer(() => {
       cardType: form.type === 'credit' ? form.cardType : undefined,
       creditLimit: form.type === 'credit' ? parseFloat(form.creditLimit) || 0 : undefined,
       currentBalance: parseFloat(form.currentBalance) || 0,
-      billDate: form.type === 'credit' && form.billDate ? new Date(form.billDate) : undefined,
-      dueDate: form.type === 'credit' && form.dueDate ? new Date(form.dueDate) : undefined,
+      billDate: form.type === 'credit' && bDateNum ? bDateNum : undefined,
+      dueDate: form.type === 'credit' && dDateNum ? dDateNum : undefined,
     };
 
     if (editingId) {
@@ -153,6 +166,7 @@ const AccountsScreen: React.FC = observer(() => {
           accounts.creditCards.map(card => {
             const util = card.creditLimit
               ? (card.currentBalance / card.creditLimit) * 100 : 0;
+            const available = (card.creditLimit ?? 0) - card.currentBalance;
             const utilColor = creditUtilizationColor(util);
             const utilLabel = util < 30 ? 'Healthy' : util < 50 ? 'Moderate' : 'High';
             const today = new Date();
@@ -215,11 +229,11 @@ const AccountsScreen: React.FC = observer(() => {
                   <View style={styles.utilDetails}>
                     <View style={styles.utilRow}>
                       <Text style={styles.utilLabel}>
-                        ₹{formatINR(card.currentBalance, true)} used of ₹{formatINR(card.creditLimit ?? 0, true)}
+                        ₹{formatINR(card.currentBalance, true)} used • {available < 0 ? `Over limit by ₹${formatINR(Math.abs(available), true)}` : `₹${formatINR(available, true)} available`}
                       </Text>
                       <Text style={[styles.utilPct, { color: utilColor }]}>{util.toFixed(1)}%</Text>
                     </View>
-                    <ProgressBar pct={util} color={utilColor} height={8} />
+                    <ProgressBar pct={Math.min(100, util)} color={utilColor} height={8} />
                     <View style={styles.markers}>
                       <Text style={styles.markerText}>0%</Text>
                       <Text style={[styles.markerText, { color: Colors.warning }]}>30%</Text>
@@ -268,7 +282,7 @@ const AccountsScreen: React.FC = observer(() => {
               {[
                 { label: 'Account Name *', key: 'name', placeholder: 'e.g. SBI Savings' },
                 { label: 'Bank Name *', key: 'bankName', placeholder: 'e.g. State Bank of India' },
-                { label: 'Current Balance (₹)', key: 'currentBalance', placeholder: '0', keyboard: 'decimal-pad' },
+                ...(form.type === 'debit' ? [{ label: 'Current Balance (₹)', key: 'currentBalance', placeholder: '0', keyboard: 'decimal-pad' }] : []),
               ].map(({ label, key, placeholder, keyboard }) => (
                 <View key={key}>
                   <Text style={styles.inputLabel}>{label}</Text>
@@ -322,26 +336,26 @@ const AccountsScreen: React.FC = observer(() => {
                     keyboardType="decimal-pad"
                   />
 
-                  <Text style={styles.inputLabel}>📅 Bill Generation Date (YYYY-MM-DD)</Text>
+                  <Text style={styles.inputLabel}>📅 Bill Generation Day (1-31)</Text>
                   <TextInput
                     style={styles.input}
                     value={form.billDate}
-                    onChangeText={v => setForm(f => ({ ...f, billDate: v }))}
-                    placeholder="e.g. 2024-03-05"
+                    onChangeText={v => setForm(f => ({ ...f, billDate: v.replace(/[^0-9]/g, '') }))}
+                    placeholder="e.g. 15"
                     placeholderTextColor={Colors.textMuted}
-                    keyboardType="name-phone-pad"
-                    maxLength={10}
+                    keyboardType="numeric"
+                    maxLength={2}
                   />
                   
-                  <Text style={styles.inputLabel}>📅 Payment Due Date (YYYY-MM-DD)</Text>
+                  <Text style={styles.inputLabel}>📅 Payment Due Day (1-31)</Text>
                   <TextInput
                     style={[styles.input, styles.inputHighlight]}
                     value={form.dueDate}
-                    onChangeText={v => setForm(f => ({ ...f, dueDate: v }))}
-                    placeholder="e.g. 2024-03-25"
+                    onChangeText={v => setForm(f => ({ ...f, dueDate: v.replace(/[^0-9]/g, '') }))}
+                    placeholder="e.g. 5"
                     placeholderTextColor={Colors.textMuted}
-                    keyboardType="name-phone-pad"
-                    maxLength={10}
+                    keyboardType="numeric"
+                    maxLength={2}
                   />
                   <Text style={styles.billDateHint}>
                     Spends are grouped by generation date. Alerts are based on due date.

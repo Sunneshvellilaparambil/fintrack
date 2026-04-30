@@ -125,9 +125,12 @@ export class LoanStore {
           });
 
           await acc.update((_acc: any) => {
-            // For credit cards, spending (negative) increases owed balance.
-            // For debit cards, spending (negative) decreases cash balance.
-            _acc.currentBalance += (_acc.type === 'credit') ? Math.abs(emiAmount) : -Math.abs(emiAmount);
+            // For credit cards, balance = unpaid purchases + remaining EMIs. 
+            // Marking EMI as paid shifts it from remaining EMIs to unpaid purchases, so total balance is unchanged!
+            // For debit cards, spending decreases cash balance.
+            if (_acc.type !== 'credit') {
+              _acc.currentBalance -= Math.abs(emiAmount);
+            }
           });
         } catch (e) {
           // Linked account not found

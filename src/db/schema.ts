@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const schema = appSchema({
-  version: 3,
+  version: 5,
   tables: [
     // ── Accounts & Cards ──────────────────────────────────────────────────
     tableSchema({
@@ -14,8 +14,9 @@ export const schema = appSchema({
         { name: 'card_type', type: 'string', isOptional: true },  // visa | mastercard | rupay
         { name: 'credit_limit', type: 'number', isOptional: true },
         { name: 'current_balance', type: 'number' },
-        { name: 'bill_date', type: 'number', isOptional: true }, // day of month bill is generated
-        { name: 'due_date', type: 'number', isOptional: true },  // day of month bill is due
+        { name: 'bill_date', type: 'number', isOptional: true }, // day of month bill is generated (1-31)
+        { name: 'due_date', type: 'number', isOptional: true },  // day of month bill is due (1-31)
+        { name: 'last_paid_cycle_start', type: 'number', isOptional: true }, // unix timestamp of the last paid cycle start
         { name: 'created_at', type: 'number' },
       ],
     }),
@@ -141,6 +142,8 @@ export const schema = appSchema({
         { name: 'odometer', type: 'number' },
         { name: 'insurance_due', type: 'number' },
         { name: 'loan_id', type: 'string', isOptional: true },
+        { name: 'next_service_date', type: 'number', isOptional: true },
+        { name: 'next_service_km', type: 'number', isOptional: true },
       ],
     }),
 
@@ -150,8 +153,22 @@ export const schema = appSchema({
         { name: 'vehicle_id', type: 'string', isIndexed: true },
         { name: 'date', type: 'number' },
         { name: 'odometer', type: 'number' },
-        { name: 'description', type: 'string' },
+        { name: 'service_name', type: 'string' },
+        { name: 'description', type: 'string', isOptional: true },
         { name: 'cost', type: 'number' },
+        { name: 'is_recurring', type: 'boolean' },
+        { name: 'recurring_by', type: 'string', isOptional: true }, // 'km' | 'date'
+        { name: 'next_service_km', type: 'number', isOptional: true },
+        { name: 'next_service_date', type: 'number', isOptional: true },
+      ],
+    }),
+
+    tableSchema({
+      name: 'odometer_history',
+      columns: [
+        { name: 'vehicle_id', type: 'string', isIndexed: true },
+        { name: 'odometer', type: 'number' },
+        { name: 'date', type: 'number' },
       ],
     }),
   ],

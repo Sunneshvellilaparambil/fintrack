@@ -15,8 +15,9 @@ export class Account extends Model {
   @field('card_type') cardType!: string | null;
   @field('credit_limit') creditLimit!: number | null;
   @field('current_balance') currentBalance!: number;
-  @date('bill_date') billDate!: Date | null; 
-  @date('due_date') dueDate!: Date | null; 
+  @field('bill_date') billDate!: number | null; // day of month (1-31)
+  @field('due_date') dueDate!: number | null;   // day of month (1-31)
+  @date('last_paid_cycle_start') lastPaidCycleStart!: Date | null;
   @readonly @date('created_at') createdAt!: Date;
 }
 
@@ -137,18 +138,30 @@ export class Vehicle extends Model {
   @text('reg_number') regNumber!: string;
   @field('odometer') odometer!: number;
   @date('insurance_due') insuranceDue!: Date;
+  @date('next_service_date') nextServiceDate!: Date | null;
+  @field('next_service_km') nextServiceKm!: number | null;
 
   @text('loan_id') loanId!: string | null;
-  @relation('loans', 'loan_id') loan!: Relation<Loan>;
 }
 
 export class ServiceLog extends Model {
   static table = 'service_logs';
   @text('vehicle_id') vehicleId!: string;
-  @relation('vehicles', 'vehicle_id') vehicle!: Relation<Vehicle>;
 
   @date('date') date!: Date;
   @field('odometer') odometer!: number;
-  @text('description') description!: string;
+  @text('service_name') serviceName!: string;
+  @text('description') description!: string | null;
   @field('cost') cost!: number;
+  @field('is_recurring') isRecurring!: boolean;
+  @text('recurring_by') recurringBy!: string | null;
+  @field('next_service_km') nextServiceKm!: number | null;
+  @date('next_service_date') nextServiceDate!: Date | null;
+}
+
+export class OdometerHistory extends Model {
+  static table = 'odometer_history';
+  @text('vehicle_id') vehicleId!: string;
+  @field('odometer') odometer!: number;
+  @date('date') date!: Date;
 }

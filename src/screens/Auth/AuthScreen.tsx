@@ -7,6 +7,7 @@ import { observer } from 'mobx-react-lite';
 import { useStores, loadAllStores } from '../../stores';
 import { Colors, FontSize, FontWeight, Spacing, Radius } from '../../theme';
 import AppIcon from '../../components/AppIcon';
+import { runInAction } from 'mobx';
 
 const PIN_LENGTH = 6;
 
@@ -65,6 +66,12 @@ const AuthScreen: React.FC = observer(() => {
 
   const handleDelete = () => setPin(p => p.slice(0, -1));
 
+  const handleSwitchProfile = () => {
+    runInAction(() => {
+      auth.activeProfile = null;
+    });
+  };
+
   const PadButton = ({ digit, label }: { digit: string; label?: string }) => (
     <TouchableOpacity
       style={styles.padBtn}
@@ -77,11 +84,17 @@ const AuthScreen: React.FC = observer(() => {
 
   return (
     <View style={styles.container}>
-      {/* Logo area */}
+      {/* Profile info area */}
       <View style={styles.header}>
-        <AppIcon size={100} />
-        <Text style={styles.appName}>FinTrack</Text>
-        <Text style={styles.tagline}>Your Private Wealth Manager</Text>
+        <View style={styles.profileBadge}>
+          <Text style={styles.profileEmoji}>{auth.activeProfile?.emoji}</Text>
+        </View>
+        <Text style={styles.appName}>Welcome back,</Text>
+        <Text style={styles.userName}>{auth.activeProfile?.name}</Text>
+        
+        <TouchableOpacity style={styles.switchBtn} onPress={handleSwitchProfile}>
+          <Text style={styles.switchBtnText}>Switch Profile</Text>
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -144,17 +157,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Spacing.xxl,
   },
-
+  profileBadge: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: Colors.bgElevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.base,
+    borderWidth: 2,
+    borderColor: Colors.border,
+  },
+  profileEmoji: {
+    fontSize: 32,
+  },
   appName: {
+    fontSize: FontSize.lg,
+    color: Colors.textSecondary,
+  },
+  userName: {
     fontSize: FontSize.xxl,
     fontWeight: FontWeight.extrabold,
     color: Colors.textPrimary,
-    letterSpacing: 1,
+    letterSpacing: 0.5,
   },
-  tagline: {
+  switchBtn: {
+    marginTop: Spacing.base,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: Radius.full,
+    backgroundColor: `${Colors.primary}22`,
+  },
+  switchBtnText: {
     fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    marginTop: 4,
+    color: Colors.primaryLight,
+    fontWeight: FontWeight.bold,
   },
   loadingContainer: {
     alignItems: 'center',
