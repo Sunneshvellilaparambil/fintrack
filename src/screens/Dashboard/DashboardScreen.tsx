@@ -340,7 +340,14 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
             {/* EMI Loan cards */}
             {loans.loans.slice(0, 3).map(loan => {
               const emi = calculateEMI(loan.principal, loan.roi, loan.tenureMonths);
-              const days = daysUntilEMI(loan.emiDay);
+              
+              // Calculate next real due date based on progress
+              const start = new Date(loan.startDate);
+              const nextDue = new Date(start.getFullYear(), start.getMonth() + loan.paidEmis, loan.emiDay);
+              const today = new Date();
+              const days = Math.ceil((nextDue.getTime() - today.getTime()) / 86400000);
+              const isPaidInFull = loan.paidEmis >= loan.tenureMonths;
+
               const isUrgent = days <= 5;
               const progress = (loan.paidEmis / loan.tenureMonths) * 100;
               const loanColor = loan.type === 'housing' ? Colors.info
@@ -373,9 +380,9 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                           ₹{formatINR(emi)}/mo
                         </Text>
                         <Text style={[styles.loanDue, {
-                          color: isUrgent ? Colors.danger : Colors.textMuted,
+                          color: isPaidInFull ? Colors.success : (days < 0 ? Colors.danger : (isUrgent ? Colors.warning : Colors.textMuted)),
                         }]}>
-                          {isUrgent ? '🔴 ' : '🟡 '}Due in {days}d
+                          {isPaidInFull ? '🎉 Fully Paid' : (days < 0 ? `❗ Overdue ${Math.abs(days)}d` : `Due in ${days}d`)}
                         </Text>
                       </View>
                     </View>
@@ -435,11 +442,11 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                 <View>
                   <Text style={styles.heroLabel}>OVERALL UTILIZATION</Text>
                   <Text style={[styles.utilBig, { color: overallUtilColor }]}>
-                    {overallUtil.toFixed(1)}%
+                    {overallUtil > 100 ? '100%+' : `${overallUtil.toFixed(1)}%`}
                   </Text>
                 </View>
                 <Badge
-                  label={overallUtil < 30 ? '✓ HEALTHY' : overallUtil < 50 ? '⚠ MODERATE' : '✗ HIGH'}
+                  label={overallUtil > 100 ? '✗ OVER LIMIT' : overallUtil < 30 ? '✓ HEALTHY' : overallUtil < 50 ? '⚠ MODERATE' : '✗ HIGH'}
                   color={overallUtilColor}
                   bgColor={`${overallUtilColor}18`}
                 />
@@ -471,7 +478,7 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                         ₹{formatINR(card.currentBalance)} owed · ₹{formatINR(card.creditLimit ?? 0)} limit
                       </Text>
                     </View>
-                    <Text style={[styles.utilBig2, { color: uc }]}>{util.toFixed(0)}%</Text>
+                    <Text style={[styles.utilBig2, { color: uc }]}>{util > 100 ? '100%+' : `${util.toFixed(0)}%`}</Text>
                   </View>
                   <ProgressBar pct={util} color={uc} height={6} style={{ marginTop: Spacing.sm }} />
                 </Card>

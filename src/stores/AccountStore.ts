@@ -101,6 +101,8 @@ export class AccountStore {
 
       const cycleStart = this.getStatementCycleStart(acc);
       const cycleStartMs = cycleStart.getTime();
+      const cycleEnd = this.getNextBillDate(acc.billDate as number);
+      const cycleEndMs = cycleEnd.getTime();
 
       const cardLoans = (await db.loans.query(Q.where('account_id', id)).fetch()) as any[];
       const loanShapes = cardLoans.map((l: any) => ({
@@ -108,6 +110,8 @@ export class AccountStore {
         roi: l.roi,
         tenureMonths: l.tenureMonths,
         paidEmis: l.paidEmis,
+        startDate: l.startDate,
+        emiDay: l.emiDay,
       }));
 
       const txns = await db.transactions.query(
@@ -122,6 +126,7 @@ export class AccountStore {
 
       const { outstanding } = computeCreditCardOutstandingThisCycle(
         cycleStartMs,
+        cycleEndMs,
         txnShapes,
         loanShapes,
       );

@@ -8,8 +8,12 @@ import { useStores } from '../../stores';
 import { Colors, FontSize, FontWeight, Spacing, Radius } from '../../theme';
 import { Card, GlowCard, SectionHeader, Badge, Divider, EmptyState } from '../../components/shared';
 import { formatINR, creditUtilizationColor } from '../../utils/finance';
-import { computeCreditCardOutstandingThisCycle } from '../../utils/cardBilling';
+import { 
+  computeCreditCardOutstandingThisCycle,
+  CREDIT_CARD_BILL_PAYMENT_SUBCATEGORY
+} from '../../utils/cardBilling';
 import { Account } from '../../db/models';
+import Icon from 'react-native-vector-icons/Ionicons';
 
 const BillsScreen: React.FC = observer(() => {
   const { accounts, budget, loans } = useStores();
@@ -22,6 +26,12 @@ const BillsScreen: React.FC = observer(() => {
   const [payFromId, setPayFromId] = useState('');
   const [payAmountStr, setPayAmountStr] = useState('');
   const [paySubmitting, setPaySubmitting] = useState(false);
+  const [detailsModal, setDetailsModal] = useState<{
+    card: Account;
+    cycleStart: Date;
+    nextBill: Date;
+    txns: any[];
+  } | null>(null);
 
   const today = new Date();
 
@@ -36,20 +46,24 @@ const BillsScreen: React.FC = observer(() => {
       const cardLoans = loans.loans.filter(l => l.accountId === card.id);
       const breakdown = computeCreditCardOutstandingThisCycle(
         cycleStart.getTime(),
+        nextBill.getTime(),
         cardTxnsAll,
         cardLoans.map(l => ({
           principal: l.principal,
           roi: l.roi,
           tenureMonths: l.tenureMonths,
           paidEmis: l.paidEmis,
+          startDate: l.startDate,
+          emiDay: l.emiDay,
         })),
       );
 
-      const totalBill = breakdown.outstanding;
+      const totalBill = (breakdown as any).cycleStatementDue;
       const monthlyEmisOnCard = breakdown.monthlyEmiCommitted;
       
-      // Check if paid
-      const isPaid = card.lastPaidCycleStart && new Date(card.lastPaidCycleStart).getTime() >= cycleStart.getTime();
+      // Math Truth: Paid if the current cycle due is 0. 
+      // If you spend more after paying, it becomes unpaid again.
+      const isPaid = totalBill <= 1; // 1 rupee buffer for rounding
       
       const daysUntilDue = Math.ceil((nextDue.getTime() - today.getTime()) / 86400000);
       const isOverdue = !isPaid && daysUntilDue < 0;
@@ -65,6 +79,7 @@ const BillsScreen: React.FC = observer(() => {
         daysUntilDue,
         breakdown,
         monthlyEmisOnCard,
+        cardTxnsAll,
       };
     })
     .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
@@ -160,45 +175,58 @@ const BillsScreen: React.FC = observer(() => {
         {bills.length === 0 ? (
           <EmptyState icon="receipt-outline" title="No bills generated" description="Add credit cards with Bill & Due days to see your bills." />
         ) : (
-          bills.map(({ card, cycleStart, nextBill, nextDue, totalBill, isPaid, isOverdue, daysUntilDue, breakdown, monthlyEmisOnCard }) => {
+          bills.map(({ card, cycleStart, nextBill, nextDue, totalBill, isPaid, isOverdue, daysUntilDue, breakdown, monthlyEmisOnCard, cardTxnsAll }) => {
             const urgentColor = isPaid ? Colors.success : (isOverdue ? Colors.danger : (daysUntilDue <= 5 ? Colors.warning : Colors.info));
             const formatD = (d: Date) => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 
             return (
               <Card key={card.id} style={StyleSheet.flatten([styles.billCard, { borderLeftColor: urgentColor, borderLeftWidth: 4, opacity: isPaid ? 0.6 : 1 }])}>
-                <View style={styles.billHeaderRow}>
-                  <View style={styles.billCardLeft}>
-                    <Text style={[styles.billCardTitle, isPaid && { textDecorationLine: 'line-through', color: Colors.textMuted }]}>
-                      {card.bankName} ···{card.cardLast2}
-                    </Text>
-                    <Text style={styles.billCycleLabel}>
-                      Cycle: {formatD(cycleStart)} → {formatD(nextBill)}
-                    </Text>
-                    <Text style={[styles.billCycleLabel, { color: urgentColor, fontWeight: FontWeight.bold }]}>
-                      Due on {formatD(nextDue)}
-                    </Text>
-                  </View>
-                  <View style={styles.billCardRight}>
-                    <Text style={[styles.billDaysLeft, { color: urgentColor }]}>
-                      {isPaid ? 'PAID ✅' : (isOverdue ? `${Math.abs(daysUntilDue)}d Overdue` : (daysUntilDue === 0 ? 'Due Today' : `in ${daysUntilDue}d`))}
-                    </Text>
-                    <Text style={styles.billTotal}>₹{formatINR(totalBill)}</Text>
-                  </View>
-                </View>
-
-                {(breakdown.nonEmiCycleNet > 0 ||
-                  breakdown.remainingEmiLiabilityTotal > 0 ||
-                  monthlyEmisOnCard > 0) && (
-                  <Text style={{ fontSize: FontSize.xs, color: Colors.warning, marginTop: 4 }}>
-                    Non‑EMI (cycle) ₹{formatINR(breakdown.nonEmiCycleNet)} + remaining EMI ₹{formatINR(breakdown.remainingEmiLiabilityTotal)}
-                    {monthlyEmisOnCard > 0 ? (
-                      <Text style={{ color: Colors.textMuted }}>
-                        {' '}
-                        · ~₹{formatINR(monthlyEmisOnCard)}/mo · EMI lines ₹{formatINR(breakdown.emiLoggedInCycle)}
+                <TouchableOpacity 
+                  activeOpacity={0.7} 
+                  onPress={() => {
+                    const cycleTxns = cardTxnsAll
+                      .filter(t => {
+                        const dt = new Date(t.date).getTime();
+                        return dt >= cycleStart.getTime() && dt < nextBill.getTime();
+                      })
+                      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                    setDetailsModal({ card, cycleStart, nextBill, txns: cycleTxns });
+                  }}
+                >
+                  <View style={styles.billHeaderRow}>
+                    <View style={styles.billCardLeft}>
+                      <Text style={[styles.billCardTitle, isPaid && { textDecorationLine: 'line-through', color: Colors.textMuted }]}>
+                        {card.bankName} ···{card.cardLast2}
                       </Text>
-                    ) : null}
-                  </Text>
-                )}
+                      <Text style={styles.billCycleLabel}>
+                        Cycle: {formatD(cycleStart)} → {formatD(nextBill)}
+                      </Text>
+                      <Text style={[styles.billCycleLabel, { color: urgentColor, fontWeight: FontWeight.bold }]}>
+                        Due on {formatD(nextDue)}
+                      </Text>
+                    </View>
+                    <View style={styles.billCardRight}>
+                      <Text style={[styles.billDaysLeft, { color: urgentColor }]}>
+                        {isPaid ? 'PAID ✅' : (isOverdue ? `${Math.abs(daysUntilDue)}d Overdue` : (daysUntilDue === 0 ? 'Due Today' : `in ${daysUntilDue}d`))}
+                      </Text>
+                      <Text style={styles.billTotal}>₹{formatINR(totalBill)}</Text>
+                    </View>
+                  </View>
+
+                  {(breakdown.nonEmiCycleNet > 0 ||
+                    breakdown.remainingEmiLiabilityTotal > 0 ||
+                    monthlyEmisOnCard > 0) && (
+                  <View style={{ marginTop: 8, gap: 2 }}>
+                    <Text style={{ fontSize: 11, color: Colors.textMuted }}>
+                      Monthly Spends: ₹{formatINR(breakdown.nonEmiCycleNet)} · Monthly EMIs: ₹{formatINR(monthlyEmisOnCard)}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: Colors.textSecondary, fontWeight: FontWeight.semibold }}>
+                      Total Card Debt (inc. future EMIs): ₹{formatINR(breakdown.outstanding)}
+                    </Text>
+                    <Text style={{ fontSize: 10, color: Colors.info, marginTop: 2 }}>Tap to view cycle details →</Text>
+                  </View>
+                  )}
+                </TouchableOpacity>
 
                 {!isPaid && totalBill > 0 && (
                   <TouchableOpacity
@@ -280,6 +308,62 @@ const BillsScreen: React.FC = observer(() => {
               </TouchableOpacity>
             </ScrollView>
           )}
+        </View>
+      </Modal>
+
+      {/* Cycle Details Modal */}
+      <Modal visible={!!detailsModal} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.paySheet}>
+          <View style={styles.paySheetHeader}>
+            <View>
+              <Text style={styles.paySheetTitle}>Statement Details</Text>
+              <Text style={styles.payCycleLabel}>
+                {detailsModal?.cycleStart.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} → {detailsModal?.nextBill.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.paySheetClose} onPress={() => setDetailsModal(null)}>
+              <Text style={styles.paySheetCloseTxt}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.paySheetBody}>
+            <Text style={styles.detailsBank}>{detailsModal?.card.bankName} ···{detailsModal?.card.cardLast2}</Text>
+            
+            {detailsModal?.txns.length === 0 ? (
+              <View style={{ marginTop: 40, alignItems: 'center' }}>
+                <Icon name="receipt-outline" size={48} color={Colors.textMuted} />
+                <Text style={{ color: Colors.textMuted, marginTop: 8 }}>No transactions in this cycle</Text>
+              </View>
+            ) : (
+              detailsModal?.txns.map((t, idx) => {
+                const isEmi = t.subCategory?.startsWith('EMI –');
+                const isPayment = t.subCategory === CREDIT_CARD_BILL_PAYMENT_SUBCATEGORY;
+                const amtColor = isPayment ? Colors.success : (t.amount > 0 ? Colors.success : Colors.textPrimary);
+                
+                return (
+                  <View key={t.id || idx}>
+                    <View style={styles.txnRow}>
+                      <View style={styles.txnLeft}>
+                        <Text style={styles.txnSub}>{t.subCategory}</Text>
+                        <Text style={styles.txnDate}>
+                          {new Date(t.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </Text>
+                      </View>
+                      <View style={styles.txnRight}>
+                        <Text style={[styles.txnAmt, { color: amtColor }]}>
+                          {t.amount > 0 ? '+' : ''}₹{formatINR(Math.abs(t.amount))}
+                        </Text>
+                        {isEmi && <Badge label="EMI" color={Colors.warning} bgColor={`${Colors.warning}18`} />}
+                        {isPayment && <Badge label="PAYMENT" color={Colors.success} bgColor={`${Colors.success}18`} />}
+                      </View>
+                    </View>
+                    {idx < detailsModal.txns.length - 1 && <Divider style={{ marginVertical: 12 }} />}
+                  </View>
+                );
+              })
+            )}
+            <View style={{ height: 40 }} />
+          </ScrollView>
         </View>
       </Modal>
 
@@ -384,4 +468,12 @@ const styles = StyleSheet.create({
     alignItems: 'center', marginTop: Spacing.xl, marginBottom: Spacing.xxl,
   },
   payConfirmTxt: { color: Colors.textPrimary, fontWeight: FontWeight.black, fontSize: FontSize.base },
+  payCycleLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: FontWeight.medium, marginTop: 2 },
+  detailsBank: { fontSize: FontSize.md, fontWeight: FontWeight.bold, color: Colors.textPrimary, marginBottom: Spacing.base, marginTop: Spacing.xs },
+  txnRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  txnLeft: { flex: 1, gap: 4 },
+  txnRight: { alignItems: 'flex-end', gap: 6 },
+  txnSub: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: Colors.textPrimary },
+  txnDate: { fontSize: FontSize.xs, color: Colors.textMuted },
+  txnAmt: { fontSize: FontSize.md, fontWeight: FontWeight.black },
 });

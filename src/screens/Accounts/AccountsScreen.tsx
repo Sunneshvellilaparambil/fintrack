@@ -185,8 +185,16 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
                 roi: l.roi,
                 tenureMonths: l.tenureMonths,
                 paidEmis: l.paidEmis,
+                startDate: l.startDate,
+                emiDay: l.emiDay,
               }));
-            const cyc = computeCreditCardOutstandingThisCycle(csMs, cardTxShapes, loanShapes);
+            const nextBillDate = accounts.getNextBillDate(card.billDate as number);
+            const cyc = computeCreditCardOutstandingThisCycle(
+              csMs,
+              nextBillDate.getTime(),
+              cardTxShapes,
+              loanShapes
+            );
             const owedSplit = splitOutstandingNonEmiVsEmi({
               nonEmiCycleNet: cyc.nonEmiCycleNet,
               remainingEmiLiabilityTotal: cyc.remainingEmiLiabilityTotal,
@@ -196,7 +204,7 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
               ? (card.currentBalance / card.creditLimit) * 100 : 0;
             const available = (card.creditLimit ?? 0) - card.currentBalance;
             const utilColor = creditUtilizationColor(util);
-            const utilLabel = util < 30 ? 'Healthy' : util < 50 ? 'Moderate' : 'High';
+            const utilLabel = util > 100 ? 'Over Limit' : util < 30 ? 'Healthy' : util < 50 ? 'Moderate' : 'High';
             const today = new Date();
             const bDay = card.billDate;
             const dDay = card.dueDate;
@@ -250,7 +258,7 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
                     </View>
                     <View style={styles.accountRight}>
                       <Text style={[styles.accountBalance, { color: utilColor }]}>
-                        {util.toFixed(0)}%
+                        {util > 100 ? '100%+' : `${util.toFixed(0)}%`}
                       </Text>
                       <Badge label={utilLabel} color={utilColor} bgColor={`${utilColor}18`} />
                     </View>
@@ -262,7 +270,7 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
                           ? `Outstanding ₹${formatINR(card.currentBalance)} · over limit by ₹${formatINR(Math.abs(available))}`
                           : `Outstanding ₹${formatINR(card.currentBalance)} · credit left ₹${formatINR(available)}`}
                       </Text>
-                      <Text style={[styles.utilPct, { color: utilColor }]}>{util.toFixed(1)}%</Text>
+                      <Text style={[styles.utilPct, { color: utilColor }]}>{util > 100 ? '100%+' : `${util.toFixed(1)}%`}</Text>
                     </View>
                     <Text style={styles.utilSplit}>
                       Non‑EMI (cycle) ₹{formatINR(owedSplit.nonEmiOutstanding)} · Remaining EMI (all dues) ₹{formatINR(owedSplit.emiOutstanding)}
