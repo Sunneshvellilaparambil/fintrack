@@ -143,7 +143,7 @@ const JointVentureScreen: React.FC = observer(() => {
 
         {jointVenture.projects.length === 0 ? (
           <EmptyState
-            icon="🤝"
+            icon="people-outline"
             title="No joint projects"
             description="Track shared assets like house construction, co-owned property, or family investments"
           />
@@ -171,7 +171,7 @@ const JointVentureScreen: React.FC = observer(() => {
                 <View style={styles.projectHeader}>
                   <View style={styles.projectTitleRow}>
                     <View style={styles.projectIconBg}>
-                      <Text style={{ fontSize: 20 }}>🤝</Text>
+                      <Text style={{ fontSize: 20 }}>people-outline</Text>
                     </View>
                     <View>
                       <Text style={styles.projectName}>{p.name}</Text>
@@ -311,7 +311,7 @@ const JointVentureScreen: React.FC = observer(() => {
                           ]}
                           onPress={() => setContribForm(p => ({ ...p, accountId: opt.id }))}
                         >
-                          <Text style={styles.paymentChipEmoji}>{opt.type === 'credit' ? '💳' : '🏦'}</Text>
+                          <Text style={styles.paymentChipEmoji}>{opt.type === 'credit' ? 'card-outline' : 'business-outline'}</Text>
                           <View>
                             <Text style={[
                               styles.paymentChipLabel,

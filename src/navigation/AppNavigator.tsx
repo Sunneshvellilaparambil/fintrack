@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { observer } from 'mobx-react-lite';
 import { useStores } from '../stores';
 import { Colors, FontSize, FontWeight } from '../theme';
+import Icon from 'react-native-vector-icons/Ionicons';
 
 // Screens
 import ProfileSwitcherScreen from '../screens/Profiles/ProfileSwitcherScreen';
@@ -20,19 +21,20 @@ import JointVentureScreen from '../screens/JointVenture/JointVentureScreen';
 import WealthScreen from '../screens/Wealth/WealthScreen';
 import VehicleScreen from '../screens/Vehicles/VehicleScreen';
 import VehicleDetailScreen from '../screens/Vehicles/VehicleDetailScreen';
+import AccountTransactionsScreen from '../screens/Accounts/AccountTransactionsScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
 const TAB_ICONS: Record<string, { active: string; inactive: string }> = {
-  Dashboard: { active: '🏦', inactive: '🏦' },
-  Accounts:  { active: '💳', inactive: '💳' },
-  Budget:    { active: '📊', inactive: '📊' },
-  Bills:     { active: '🧾', inactive: '🧾' },
-  EMI:       { active: '📅', inactive: '📅' },
-  Joint:     { active: '🤝', inactive: '🤝' },
-  Wealth:    { active: '📈', inactive: '📈' },
-  Vehicles:  { active: '🚗', inactive: '🚗' },
+  Dashboard: { active: 'home', inactive: 'home-outline' },
+  Accounts:  { active: 'card', inactive: 'card-outline' },
+  Budget:    { active: 'pie-chart', inactive: 'pie-chart-outline' },
+  Bills:     { active: 'receipt', inactive: 'receipt-outline' },
+  EMI:       { active: 'calendar', inactive: 'calendar-outline' },
+  Joint:     { active: 'people', inactive: 'people-outline' },
+  Wealth:    { active: 'trending-up', inactive: 'trending-up-outline' },
+  Vehicles:  { active: 'car', inactive: 'car-outline' },
 };
 
 const MainTabs = () => {
@@ -50,9 +52,11 @@ const MainTabs = () => {
             borderRadius: 16,
             backgroundColor: focused ? `${Colors.primary}22` : 'transparent',
           }}>
-            <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.45 }}>
-              {TAB_ICONS[route.name]?.active ?? '●'}
-            </Text>
+            <Icon 
+              name={TAB_ICONS[route.name]?.[focused ? 'active' : 'inactive'] ?? 'ellipse'} 
+              size={20} 
+              color={focused ? Colors.primaryLight : Colors.textMuted} 
+            />
           </View>
         ),
         tabBarLabel: ({ focused, children }) => (
@@ -135,6 +139,23 @@ const AppNavigator: React.FC = observer(() => {
           <>
             <Stack.Screen name="Main" component={MainTabs} />
             <Stack.Screen name="VehicleDetail" component={VehicleDetailScreen} options={{ headerShown: true, title: 'Vehicle Info', headerStyle: { backgroundColor: Colors.bg, elevation: 0, shadowOpacity: 0, borderBottomWidth: 1, borderBottomColor: Colors.border }, headerTintColor: Colors.textPrimary }} />
+            <Stack.Screen
+              name="AccountTransactions"
+              component={AccountTransactionsScreen}
+              options={{
+                headerShown: true,
+                title: 'Account activity',
+                headerStyle: {
+                  backgroundColor: Colors.bg,
+                  elevation: 0,
+                  shadowOpacity: 0,
+                  borderBottomWidth: 1,
+                  borderBottomColor: Colors.border,
+                },
+                headerTintColor: Colors.textPrimary,
+                headerTitleStyle: { color: Colors.textPrimary, fontWeight: FontWeight.bold },
+              }}
+            />
           </>
         )}
       </Stack.Navigator>

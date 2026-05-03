@@ -1,0 +1,268 @@
+{
+  "version": 3,
+  "timestamp": "2026-05-01T07:48:28.629Z",
+  "profileId": "demo-profile-123",
+  "profileName": "Demo Profile",
+  "data": {
+    "accounts": [
+      {
+        "id": "qmt0fsjc",
+        "name": "Main Checking",
+        "type": "debit",
+        "bank_name": "Chase",
+        "current_balance": 15400.5,
+        "created_at": 1775029708629
+      },
+      {
+        "id": "48lv2sxn",
+        "name": "Rewards Credit Card",
+        "type": "credit",
+        "bank_name": "Amex",
+        "card_last2": "45",
+        "card_type": "amex",
+        "credit_limit": 20000,
+        "current_balance": 1250.75,
+        "bill_date": 15,
+        "due_date": 5,
+        "created_at": 1775029708629
+      }
+    ],
+    "transactions": [
+      {
+        "id": "a62x36y5",
+        "account_id": "qmt0fsjc",
+        "amount": -50,
+        "category": "needs",
+        "sub_category": "Groceries",
+        "note": "Whole Foods",
+        "date": 1776325708629,
+        "is_joint_expense": false
+      },
+      {
+        "id": "y6cexsf7",
+        "account_id": "qmt0fsjc",
+        "amount": -85.5,
+        "category": "needs",
+        "sub_category": "Utilities",
+        "note": "Electric Bill",
+        "date": 1775116108629,
+        "is_joint_expense": false
+      },
+      {
+        "id": "404oeqn9",
+        "account_id": "48lv2sxn",
+        "amount": -120,
+        "category": "wants",
+        "sub_category": "Dining",
+        "note": "Steakhouse",
+        "date": 1777535308629,
+        "is_joint_expense": false
+      },
+      {
+        "id": "2zd6xp8w",
+        "account_id": "48lv2sxn",
+        "amount": -15,
+        "category": "wants",
+        "sub_category": "Entertainment",
+        "note": "Netflix",
+        "date": 1777448908629,
+        "is_joint_expense": false
+      },
+      {
+        "id": "l3art7xc",
+        "account_id": "qmt0fsjc",
+        "amount": -500,
+        "category": "savings",
+        "sub_category": "Emergency Fund",
+        "note": "Monthly transfer",
+        "date": 1777189708629,
+        "is_joint_expense": false
+      }
+    ],
+    "income_sources": [
+      {
+        "id": "feddxcoz",
+        "name": "Primary Salary",
+        "amount": 8500,
+        "frequency": "monthly",
+        "date": 1777621708629
+      },
+      {
+        "id": "uygovdih",
+        "name": "Freelance Client",
+        "amount": 1200,
+        "frequency": "monthly",
+        "date": 1777621708629
+      }
+    ],
+    "loans": [
+      {
+        "id": "6zlxrrfk",
+        "type": "vehicle",
+        "lender": "Auto Finance",
+        "principal": 25000,
+        "roi": 4.5,
+        "tenure_months": 60,
+        "start_date": 1766389708629,
+        "emi_day": 10,
+        "paid_emis": 4,
+        "account_id": "qmt0fsjc"
+      },
+      {
+        "id": "gk8aa2uh",
+        "type": "housing",
+        "lender": "HDFC Bank",
+        "principal": 500000,
+        "roi": 8.5,
+        "tenure_months": 240,
+        "start_date": 1688629708629,
+        "emi_day": 5,
+        "paid_emis": 30,
+        "account_id": "qmt0fsjc"
+      }
+    ],
+    "joint_projects": [
+      {
+        "id": "9titwzsp",
+        "name": "Vacation Fund",
+        "description": "Europe Trip 2026",
+        "status": "active",
+        "created_at": 1775029708629
+      }
+    ],
+    "joint_members": [
+      {
+        "id": "aq436h59",
+        "project_id": "9titwzsp",
+        "name": "Self",
+        "is_self": true,
+        "ownership_pct": 50
+      },
+      {
+        "id": "rwzhxl5e",
+        "project_id": "9titwzsp",
+        "name": "Partner",
+        "is_self": false,
+        "ownership_pct": 50
+      }
+    ],
+    "joint_contributions": [
+      {
+        "id": "89d8say1",
+        "project_id": "9titwzsp",
+        "member_id": "aq436h59",
+        "amount": 500,
+        "description": "Initial deposit",
+        "date": 1775029708629,
+        "is_joint_emi": false
+      },
+      {
+        "id": "9kxclifr",
+        "project_id": "9titwzsp",
+        "member_id": "rwzhxl5e",
+        "amount": 500,
+        "description": "Initial deposit matching",
+        "date": 1775029708629,
+        "is_joint_emi": false
+      }
+    ],
+    "stocks": [
+      {
+        "id": "czolgbbn",
+        "symbol": "AAPL",
+        "name": "Apple Inc.",
+        "quantity": 50,
+        "avg_buy_price": 150,
+        "current_price": 185,
+        "last_updated": 1777621708629
+      },
+      {
+        "id": "65uuxo3h",
+        "symbol": "MSFT",
+        "name": "Microsoft",
+        "quantity": 20,
+        "avg_buy_price": 300,
+        "current_price": 380,
+        "last_updated": 1777621708629
+      },
+      {
+        "id": "1i7tqyff",
+        "symbol": "VOO",
+        "name": "Vanguard S&P 500 ETF",
+        "quantity": 100,
+        "avg_buy_price": 380,
+        "current_price": 450,
+        "last_updated": 1777621708629
+      }
+    ],
+    "goals": [
+      {
+        "id": "q6cmzdgs",
+        "name": "Emergency Fund",
+        "target_amount": 30000,
+        "current_amount": 15000,
+        "target_date": 1809157708629,
+        "color": "#4CAF50"
+      },
+      {
+        "id": "af9kbyqu",
+        "name": "New Car Downpayment",
+        "target_amount": 10000,
+        "current_amount": 2500,
+        "target_date": 1793173708629,
+        "color": "#2196F3"
+      }
+    ],
+    "chittys": [
+      {
+        "id": "0h7nclpr",
+        "name": "KSFE Regular",
+        "monthly_installment": 5000,
+        "total_value": 100000,
+        "duration_months": 20,
+        "start_date": 1775029708629,
+        "auction_dividends": 1200
+      }
+    ],
+    "vehicles": [
+      {
+        "id": "lr8x460g",
+        "name": "Honda Civic",
+        "reg_number": "ABC-1234",
+        "odometer": 45000,
+        "insurance_due": 1782805708629,
+        "loan_id": "6zlxrrfk",
+        "next_service_date": 1785397708629,
+        "next_service_km": 50000
+      }
+    ],
+    "service_logs": [
+      {
+        "id": "yszcgurh",
+        "vehicle_id": "lr8x460g",
+        "date": 1775029708629,
+        "odometer": 44000,
+        "service_name": "Oil Change",
+        "description": "Regular synthetic oil change",
+        "cost": 65,
+        "is_recurring": true,
+        "recurring_by": "km",
+        "next_service_km": 50000,
+        "next_service_date": null
+      },
+      {
+        "id": "sn6td971",
+        "vehicle_id": "lr8x460g",
+        "date": 1743493708629,
+        "odometer": 35000,
+        "service_name": "Tire Replacement",
+        "description": "4 new all-season tires",
+        "cost": 450,
+        "is_recurring": false,
+        "recurring_by": null,
+        "next_service_km": null,
+        "next_service_date": null
+      }
+    ]
+  }
+}

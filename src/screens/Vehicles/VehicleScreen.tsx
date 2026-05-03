@@ -72,7 +72,7 @@ const VehicleScreen: React.FC = observer(({ navigation }: any) => {
         </View>
 
         {vehicles.vehicles.length === 0 ? (
-          <EmptyState icon="🚗" title="No vehicles yet" description="Add your car or bike to track maintenance costs." />
+          <EmptyState icon="car-outline" title="No vehicles yet" description="Add your car or bike to track maintenance costs." />
         ) : (
           vehicles.vehicles.map(v => {
             const hasInsuranceDue = v.insuranceDue && new Date(v.insuranceDue).getTime() - Date.now() < 30 * 86400000;
@@ -95,7 +95,7 @@ const VehicleScreen: React.FC = observer(({ navigation }: any) => {
                   style={styles.vehicleCard}
                 >
                   <View style={styles.cardHeader}>
-                    <View style={styles.iconBg}><Text style={{ fontSize: 24 }}>{v.name.toLowerCase().includes('bike') ? '🏍️' : '🚗'}</Text></View>
+                    <View style={styles.iconBg}><Text style={{ fontSize: 24 }}>{v.name.toLowerCase().includes('bike') ? '🏍️' : 'car-outline'}</Text></View>
                     <View style={{ flex: 1, marginLeft: Spacing.sm }}>
                       <Text style={styles.vName}>{v.name}</Text>
                       <Text style={styles.vReg}>{v.regNumber}</Text>

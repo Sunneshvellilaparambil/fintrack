@@ -19,7 +19,7 @@ const LOAN_COLORS: Record<LoanType, string> = {
 
 const LOAN_EMOJIS: Record<LoanType, string> = {
   housing: '🏠',
-  vehicle: '🚗',
+  vehicle: 'car-outline',
   personal: '👤',
 };
 
@@ -140,8 +140,8 @@ const EMIScreen: React.FC = observer(() => {
 
   const creditCardIds = new Set(accounts.creditCards.map(c => c.id));
   const paymentOptions = [
-    ...accounts.debitAccounts.map(a => ({ id: a.id, label: a.name ?? a.bankName, sub: a.bankName, emoji: '🏦', isCredit: false })),
-    ...accounts.creditCards.map(c => ({ id: c.id, label: `${c.bankName} ···${c.cardLast2}`, sub: 'Pay later (Credit)', emoji: '💳', isCredit: true })),
+    ...accounts.debitAccounts.map(a => ({ id: a.id, label: a.name ?? a.bankName, sub: a.bankName, emoji: 'business-outline', isCredit: false })),
+    ...accounts.creditCards.map(c => ({ id: c.id, label: `${c.bankName} ···${c.cardLast2}`, sub: 'Pay later (Credit)', emoji: 'card-outline', isCredit: true })),
   ];
 
   return (
@@ -178,7 +178,7 @@ const EMIScreen: React.FC = observer(() => {
 
         {loans.loans.length === 0 ? (
           <EmptyState
-            icon="📅"
+            icon="calendar-outline"
             title="No loans added"
             description="Add your loans to track EMI dues and amortization"
           />
@@ -189,9 +189,13 @@ const EMIScreen: React.FC = observer(() => {
             const emoji = LOAN_EMOJIS[type] ?? '💰';
             const emi = calculateEMI(loan.principal, loan.roi, loan.tenureMonths);
             const remaining = loan.tenureMonths - loan.paidEmis;
-            const days = daysUntilEMI(loan.emiDay);
-            const isUrgent = days <= 5;
+            const start = new Date(loan.startDate);
+            const nextDue = new Date(start.getFullYear(), start.getMonth() + loan.paidEmis, loan.emiDay);
+            const days = Math.ceil((nextDue.getTime() - today.getTime()) / 86400000);
+            const isUrgent = days <= 5 && remaining > 0;
             const progressPct = (loan.paidEmis / loan.tenureMonths) * 100;
+            const remainingAmount = remaining * emi;
+            const formattedNextDate = nextDue.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
             return (
               <TouchableOpacity
@@ -224,9 +228,9 @@ const EMIScreen: React.FC = observer(() => {
                     <View style={styles.loanRight}>
                       <Text style={[styles.loanEMI, { color }]}>₹{formatINR(emi)}/mo</Text>
                       <Text style={[styles.loanDue, {
-                        color: isUrgent ? Colors.danger : Colors.textMuted,
+                        color: remaining === 0 ? Colors.success : (isUrgent ? Colors.danger : Colors.textMuted),
                       }]}>
-                        {isUrgent ? '🔴 ' : ''}Due in {days}d
+                        {remaining === 0 ? '🎉 Fully Paid' : `${isUrgent ? '🔴 ' : ''}${days < 0 ? `Overdue by ${Math.abs(days)}d` : `Due in ${days}d`}`}
                       </Text>
                     </View>
                   </View>
@@ -255,6 +259,13 @@ const EMIScreen: React.FC = observer(() => {
                       { label: 'Remaining', value: `${remaining} EMIs`, color },
                     ]}
                   />
+                  <View style={{ height: 16 }} />
+                  <StatRow
+                    items={[
+                      { label: 'Rem. Amount', value: `₹${formatINR(remainingAmount, true)}`, color: Colors.danger },
+                      { label: 'Next Date', value: formattedNextDate, color: isUrgent ? Colors.danger : undefined },
+                    ]}
+                  />
 
                   {/* Payment method badge */}
                   {loan.accountId && (() => {
@@ -276,14 +287,23 @@ const EMIScreen: React.FC = observer(() => {
 
                   {/* Pay button */}
                   <TouchableOpacity
-                    style={styles.payBtn}
+                    style={[
+                      styles.payBtn,
+                      remaining === 0 && { opacity: 0.5, backgroundColor: Colors.bgElevated, borderColor: Colors.border }
+                    ]}
                     activeOpacity={0.8}
+                    disabled={remaining === 0}
                     onPress={() => {
+                      if (loan.paidEmis >= loan.tenureMonths) {
+                        Alert.alert('Payment Restricted', 'All EMIs for this loan have already been paid. Please check your records.');
+                        return;
+                      }
+
                       const isCC = loan.accountId ? creditCardIds.has(loan.accountId) : false;
                       const payOpt = loan.accountId ? paymentOptions.find(p => p.id === loan.accountId) : null;
                       const msg = isCC
-                        ? `Mark ₹${formatINR(emi)} as paid?\n\n💳 EMI will also be added to ${payOpt?.label ?? 'your card'}'s bill cycle.`
-                        : `Mark ₹${formatINR(emi)} as paid?`;
+                        ? `Mark ₹${formatINR(emi)} as paid for ${formattedNextDate}?\n\nRemaining EMIs: ${remaining}\nRemaining Amount: ₹${formatINR(remainingAmount, true)}\n\n💳 EMI will also be added to ${payOpt?.label ?? 'your card'}'s bill cycle.`
+                        : `Mark ₹${formatINR(emi)} as paid for ${formattedNextDate}?\n\nRemaining EMIs: ${remaining}\nRemaining Amount: ₹${formatINR(remainingAmount, true)}`;
                         Alert.alert('Mark EMI Paid', msg, [
                           { text: 'Cancel', style: 'cancel' },
                           { text: 'Confirm', onPress: async () => {
@@ -295,7 +315,9 @@ const EMIScreen: React.FC = observer(() => {
                         ]);
                     }}
                   >
-                    <Text style={styles.payBtnText}>✓  Mark This Month Paid</Text>
+                    <Text style={[styles.payBtnText, remaining === 0 && { color: Colors.textMuted }]}>
+                      {remaining === 0 ? '✓  Loan Completed' : '✓  Mark This Month Paid'}
+                    </Text>
                   </TouchableOpacity>
                 </Card>
               </TouchableOpacity>
@@ -467,7 +489,7 @@ const EMIScreen: React.FC = observer(() => {
 
                     return (
                       <View style={styles.tenureInfoCard}>
-                        <Text style={styles.tenureInfoTitle}>📅 Tenure Details</Text>
+                        <Text style={styles.tenureInfoTitle}>calendar-outline Tenure Details</Text>
                         <View style={styles.tenureInfoRow}>
                           <View style={styles.tenureInfoItem}>
                             <Text style={styles.tenureInfoLabel}>START DATE</Text>
@@ -543,7 +565,7 @@ const EMIScreen: React.FC = observer(() => {
               {/* ── Payment Method ──────────────────────────── */}
               {paymentOptions.length > 0 && (
                 <View style={{ marginTop: Spacing.base }}>
-                  <Text style={styles.inputLabel}>💳 EMI Payment Method</Text>
+                  <Text style={styles.inputLabel}>card-outline EMI Payment Method</Text>
                   <Text style={styles.paymentHint}>Which account/card will this EMI be debited from?</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
                     {/* None option */}
@@ -595,7 +617,7 @@ const EMIScreen: React.FC = observer(() => {
                     return (
                       <View style={styles.ccEmiNote}>
                         <Text style={styles.ccEmiNoteText}>
-                          💳 Each time you mark this EMI paid, ₹{form.principal && form.roi && form.tenureMonths
+                          card-outline Each time you mark this EMI paid, ₹{form.principal && form.roi && form.tenureMonths
                             ? formatINR(calculateEMI(parseFloat(form.principal), parseFloat(form.roi || '0'), parseInt(form.tenureMonths)))
                             : '...'} will be added to {opt?.label ?? 'the card'}'s billing cycle
                           {billDay ? ` (bill closes on ${billDay}th)` : ''}.

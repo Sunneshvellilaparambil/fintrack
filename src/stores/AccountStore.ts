@@ -2,7 +2,7 @@ import { makeAutoObservable, runInAction } from 'mobx';
 import { Q } from '@nozbe/watermelondb';
 import { db } from '../db';
 import { Account } from '../db/models';
-import { calculateEMI } from '../utils/finance';
+import { computeCreditCardOutstandingThisCycle } from '../utils/cardBilling';
 
 export class AccountStore {
   accounts: Account[] = [];
@@ -86,65 +86,68 @@ export class AccountStore {
     await this.load();
   }
 
+  /** Start of current statement window — same anchor as Bills. */
+  getStatementCycleStart(acc: Pick<Account, 'billDate' | 'lastPaidCycleStart'>): Date {
+    if (acc.billDate != null) {
+      return this.getCycleStart(acc.billDate as number);
+    }
+    return acc.lastPaidCycleStart ? new Date(acc.lastPaidCycleStart as Date) : new Date(0);
+  }
+
   async recalculateCardBalance(id: string) {
     await db.accounts.database.write(async () => {
       const acc = await db.accounts.find(id) as any;
       if (acc.type !== 'credit') return;
 
-      const cycleStart = acc.lastPaidCycleStart ? new Date(acc.lastPaidCycleStart) : new Date(0);
+      const cycleStart = this.getStatementCycleStart(acc);
+      const cycleStartMs = cycleStart.getTime();
 
-      const cardLoans = await db.loans.query(Q.where('account_id', id)).fetch() as any[];
-      let totalEmiBurden = 0;
-      for (const loan of cardLoans) {
-        const remaining = loan.tenureMonths - loan.paidEmis;
-        if (remaining > 0) {
-          totalEmiBurden += remaining * calculateEMI(loan.principal, loan.roi, loan.tenureMonths);
-        }
-      }
+      const cardLoans = (await db.loans.query(Q.where('account_id', id)).fetch()) as any[];
+      const loanShapes = cardLoans.map((l: any) => ({
+        principal: l.principal,
+        roi: l.roi,
+        tenureMonths: l.tenureMonths,
+        paidEmis: l.paidEmis,
+      }));
 
       const txns = await db.transactions.query(
         Q.where('account_id', id),
-        Q.where('date', Q.gte(cycleStart.getTime()))
       ).fetch() as any[];
-      
-      let unpaidPurchases = 0;
-      for (const t of txns) {
-        unpaidPurchases -= t.amount;
-      }
-      unpaidPurchases = Math.max(0, unpaidPurchases);
+
+      const txnShapes = txns.map((t: any) => ({
+        amount: t.amount,
+        date: t.date,
+        subCategory: t.subCategory,
+      }));
+
+      const { outstanding } = computeCreditCardOutstandingThisCycle(
+        cycleStartMs,
+        txnShapes,
+        loanShapes,
+      );
 
       await acc.update((_acc: any) => {
-        _acc.currentBalance = unpaidPurchases + totalEmiBurden;
+        _acc.currentBalance = outstanding;
       });
     });
     await this.load();
   }
 
-  async markBillAsPaid(id: string) {
+  /**
+   * Mark the current statement cycle as settled in the UI after a full bill payment.
+   * EMI progress stays on the EMI screen; paying the card only moves money and txns.
+   */
+  async markBillCycleSettled(creditCardId: string) {
     await db.accounts.database.write(async () => {
-      const acc = await db.accounts.find(id) as any;
+      const acc = await db.accounts.find(creditCardId) as any;
       if (acc.billDate) {
         const cycleStart = this.getCycleStart(acc.billDate);
-        
-        // 1. Update lastPaidCycleStart
         await acc.update((_acc: any) => {
           _acc.lastPaidCycleStart = cycleStart;
         });
-
-        // 2. Decrement remaining EMIs
-        const cardLoans = await db.loans.query(Q.where('account_id', id)).fetch() as any[];
-        
-        for (const loan of cardLoans) {
-          let paid = loan.paidEmis;
-          if (paid < loan.tenureMonths) {
-            paid += 1;
-            await loan.update((l: any) => { l.paidEmis = paid; });
-          }
-        }
       }
     });
-    // 3. Recalculate Current Balance
-    await this.recalculateCardBalance(id);
+    await this.recalculateCardBalance(creditCardId);
   }
 
   // ── Credit Card Bill Cycle helpers (pure, no DB calls) ─────────────────

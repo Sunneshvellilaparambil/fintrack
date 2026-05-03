@@ -252,7 +252,7 @@ const VehicleDetailScreen: React.FC = observer(({ route, navigation }: any) => {
             }
           />
           {logs.length === 0 ? (
-            <EmptyState icon="📋" title="No logs yet" description="Record maintenance to track costs and recurrence." />
+            <EmptyState icon="clipboard-outline" title="No logs yet" description="Record maintenance to track costs and recurrence." />
           ) : (
             logs.slice().sort((a,b) => b.date.getTime() - a.date.getTime()).map(log => (
               <View key={log.id} style={styles.logRow}>

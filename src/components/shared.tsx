@@ -157,6 +157,8 @@ export const StatRow: React.FC<{ items: StatItem[] }> = ({ items }) => (
   </View>
 );
 
+import Icon from 'react-native-vector-icons/Ionicons';
+
 // ─── EmptyState ───────────────────────────────────────────────────────────────
 
 export const EmptyState: React.FC<{ icon: string; title: string; description: string }> = ({
@@ -164,7 +166,7 @@ export const EmptyState: React.FC<{ icon: string; title: string; description: st
 }) => (
   <View style={styles.emptyState}>
     <View style={styles.emptyIconContainer}>
-      <Text style={styles.emptyIcon}>{icon}</Text>
+      <Icon name={icon} size={32} color={Colors.textMuted} />
     </View>
     <Text style={styles.emptyTitle}>{title}</Text>
     <Text style={styles.emptyDesc}>{description}</Text>

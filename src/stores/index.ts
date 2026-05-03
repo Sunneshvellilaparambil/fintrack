@@ -37,4 +37,7 @@ export async function loadAllStores() {
     stores.wealth.load(),
     stores.vehicles.load(),
   ]);
+  for (const c of stores.accounts.creditCards) {
+    await stores.accounts.recalculateCardBalance(c.id);
+  }
 }

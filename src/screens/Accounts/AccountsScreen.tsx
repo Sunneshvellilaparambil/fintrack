@@ -8,9 +8,14 @@ import { useStores } from '../../stores';
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '../../theme';
 import { Card, GlowCard, ProgressBar, Badge, SectionHeader, EmptyState, Divider, StatRow } from '../../components/shared';
 import { formatINR, creditUtilizationColor } from '../../utils/finance';
+import {
+  computeCreditCardOutstandingThisCycle,
+  splitOutstandingNonEmiVsEmi,
+} from '../../utils/cardBilling';
+import Icon from 'react-native-vector-icons/Ionicons';
 
-const AccountsScreen: React.FC = observer(() => {
-  const { accounts } = useStores();
+const AccountsScreen: React.FC = observer(({ navigation }: any) => {
+  const { accounts, budget, loans } = useStores();
   const [showAddModal, setShowAddModal] = useState(false);
   const [form, setForm] = useState({
     name: '', type: 'debit', bankName: '',
@@ -103,7 +108,7 @@ const AccountsScreen: React.FC = observer(() => {
             items={[
               { label: 'Debit Accounts', value: `${accounts.debitAccounts.length}`, color: Colors.info },
               { label: 'Credit Cards', value: `${accounts.creditCards.length}`, color: Colors.warning },
-              { label: 'Credit Used', value: `₹${formatINR(totalCreditUsed, true)}`, color: Colors.danger },
+              { label: 'Due on cards', value: `₹${formatINR(totalCreditUsed)}`, color: Colors.danger },
             ]}
           />
         </GlowCard>
@@ -123,12 +128,13 @@ const AccountsScreen: React.FC = observer(() => {
         />
 
         {accounts.debitAccounts.length === 0 ? (
-          <EmptyState icon="🏦" title="No accounts yet" description="Add your bank accounts to track balances" />
+          <EmptyState icon="business-outline" title="No accounts yet" description="Add your bank accounts to track balances" />
         ) : (
           accounts.debitAccounts.map(acc => (
             <Card key={acc.id} style={styles.accountCard}>
               <TouchableOpacity
                 activeOpacity={0.7}
+                onPress={() => navigation.navigate('AccountTransactions', { accountId: acc.id })}
                 onLongPress={() => {
                   Alert.alert('Manage Account', acc.name, [
                     { text: 'Cancel', style: 'cancel' },
@@ -139,7 +145,7 @@ const AccountsScreen: React.FC = observer(() => {
               >
                 <View style={styles.accountRow}>
                   <View style={[styles.accountIcon, { backgroundColor: Colors.infoDim }]}>
-                    <Text style={styles.accountEmoji}>🏦</Text>
+                    <Icon name="business" size={20} color={Colors.info} />
                   </View>
                   <View style={styles.accountInfo}>
                     <Text style={styles.accountName}>{acc.name}</Text>
@@ -161,9 +167,31 @@ const AccountsScreen: React.FC = observer(() => {
         <SectionHeader title={`Credit Cards (${accounts.creditCards.length})`} />
 
         {accounts.creditCards.length === 0 ? (
-          <EmptyState icon="💳" title="No credit cards" description="Add cards to track utilization and due dates" />
+          <EmptyState icon="card-outline" title="No credit cards" description="Add cards to track utilization and due dates" />
         ) : (
           accounts.creditCards.map(card => {
+            const csMs = accounts.getStatementCycleStart(card).getTime();
+            const cardTxShapes = budget.transactions
+              .filter(t => t.accountId === card.id)
+              .map(t => ({
+                amount: t.amount,
+                date: t.date as any,
+                subCategory: t.subCategory,
+              }));
+            const loanShapes = loans.loans
+              .filter(l => l.accountId === card.id)
+              .map(l => ({
+                principal: l.principal,
+                roi: l.roi,
+                tenureMonths: l.tenureMonths,
+                paidEmis: l.paidEmis,
+              }));
+            const cyc = computeCreditCardOutstandingThisCycle(csMs, cardTxShapes, loanShapes);
+            const owedSplit = splitOutstandingNonEmiVsEmi({
+              nonEmiCycleNet: cyc.nonEmiCycleNet,
+              remainingEmiLiabilityTotal: cyc.remainingEmiLiabilityTotal,
+            });
+
             const util = card.creditLimit
               ? (card.currentBalance / card.creditLimit) * 100 : 0;
             const available = (card.creditLimit ?? 0) - card.currentBalance;
@@ -190,6 +218,7 @@ const AccountsScreen: React.FC = observer(() => {
               <Card key={card.id} style={styles.creditCard}>
                 <TouchableOpacity
                   activeOpacity={0.7}
+                  onPress={() => navigation.navigate('AccountTransactions', { accountId: card.id })}
                   onLongPress={() => {
                     Alert.alert('Manage Card', card.bankName, [
                       { text: 'Cancel', style: 'cancel' },
@@ -200,7 +229,7 @@ const AccountsScreen: React.FC = observer(() => {
                 >
                   <View style={styles.accountRow}>
                     <View style={[styles.accountIcon, { backgroundColor: `${utilColor}18` }]}>
-                      <Text style={styles.accountEmoji}>💳</Text>
+                      <Icon name="card" size={20} color={utilColor} />
                     </View>
                     <View style={styles.accountInfo}>
                       <Text style={styles.accountName}>{card.bankName} ···{card.cardLast2}</Text>
@@ -226,13 +255,18 @@ const AccountsScreen: React.FC = observer(() => {
                       <Badge label={utilLabel} color={utilColor} bgColor={`${utilColor}18`} />
                     </View>
                   </View>
-                  <View style={styles.utilDetails}>
+                    <View style={styles.utilDetails}>
                     <View style={styles.utilRow}>
                       <Text style={styles.utilLabel}>
-                        ₹{formatINR(card.currentBalance, true)} used • {available < 0 ? `Over limit by ₹${formatINR(Math.abs(available), true)}` : `₹${formatINR(available, true)} available`}
+                        {available < 0
+                          ? `Outstanding ₹${formatINR(card.currentBalance)} · over limit by ₹${formatINR(Math.abs(available))}`
+                          : `Outstanding ₹${formatINR(card.currentBalance)} · credit left ₹${formatINR(available)}`}
                       </Text>
                       <Text style={[styles.utilPct, { color: utilColor }]}>{util.toFixed(1)}%</Text>
                     </View>
+                    <Text style={styles.utilSplit}>
+                      Non‑EMI (cycle) ₹{formatINR(owedSplit.nonEmiOutstanding)} · Remaining EMI (all dues) ₹{formatINR(owedSplit.emiOutstanding)}
+                    </Text>
                     <ProgressBar pct={Math.min(100, util)} color={utilColor} height={8} />
                     <View style={styles.markers}>
                       <Text style={styles.markerText}>0%</Text>
@@ -241,9 +275,12 @@ const AccountsScreen: React.FC = observer(() => {
                       <Text style={styles.markerText}>100%</Text>
                     </View>
                     {nextDue && (
-                      <Text style={styles.billDateInfo}>
-                        📅 {dDay ? 'Next due date' : 'Next bill'}: {nextDue.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 4 }}>
+                        <Icon name="calendar-outline" size={14} color={Colors.warning} />
+                        <Text style={[styles.billDateInfo, { marginTop: 0 }]}>
+                          {dDay ? 'Next due date' : 'Next bill'}: {nextDue.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </Text>
+                      </View>
                     )}
                   </View>
                 </TouchableOpacity>
@@ -271,7 +308,11 @@ const AccountsScreen: React.FC = observer(() => {
                     style={[styles.typeBtn, form.type === t && styles.typeBtnActive]}
                     onPress={() => setForm(f => ({ ...f, type: t }))}
                   >
-                    <Text style={styles.typeBtnEmoji}>{t === 'debit' ? '🏦' : '💳'}</Text>
+                    <Icon 
+                      name={t === 'debit' ? 'business' : 'card'} 
+                      size={16} 
+                      color={form.type === t ? Colors.primary : Colors.textSecondary} 
+                    />
                     <Text style={[styles.typeBtnText, form.type === t && styles.typeBtnTextActive]}>
                       {t === 'debit' ? 'Debit' : 'Credit'}
                     </Text>
@@ -309,7 +350,10 @@ const AccountsScreen: React.FC = observer(() => {
                     keyboardType="numeric"
                     maxLength={2}
                   />
-                  <Text style={styles.securityNote}>🔒 Only last 2 digits stored for security</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 4 }}>
+                    <Icon name="lock-closed" size={12} color={Colors.success} />
+                    <Text style={[styles.securityNote, { marginTop: 0 }]}>Only last 2 digits stored for security</Text>
+                  </View>
 
                   <Text style={styles.inputLabel}>Card Network</Text>
                   <View style={styles.typeRow}>
@@ -336,7 +380,10 @@ const AccountsScreen: React.FC = observer(() => {
                     keyboardType="decimal-pad"
                   />
 
-                  <Text style={styles.inputLabel}>📅 Bill Generation Day (1-31)</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: Spacing.base, marginBottom: Spacing.xs }}>
+                    <Icon name="calendar-outline" size={16} color={Colors.textSecondary} />
+                    <Text style={[styles.inputLabel, { marginTop: 0, marginBottom: 0 }]}>Bill Generation Day (1-31)</Text>
+                  </View>
                   <TextInput
                     style={styles.input}
                     value={form.billDate}
@@ -347,7 +394,10 @@ const AccountsScreen: React.FC = observer(() => {
                     maxLength={2}
                   />
                   
-                  <Text style={styles.inputLabel}>📅 Payment Due Day (1-31)</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: Spacing.base, marginBottom: Spacing.xs }}>
+                    <Icon name="calendar-outline" size={16} color={Colors.textSecondary} />
+                    <Text style={[styles.inputLabel, { marginTop: 0, marginBottom: 0 }]}>Payment Due Day (1-31)</Text>
+                  </View>
                   <TextInput
                     style={[styles.input, styles.inputHighlight]}
                     value={form.dueDate}
@@ -409,7 +459,6 @@ const styles = StyleSheet.create({
     width: 46, height: 46, borderRadius: Radius.md,
     alignItems: 'center', justifyContent: 'center',
   },
-  accountEmoji: { fontSize: 20 },
   accountInfo: { flex: 1, gap: 4 },
   accountName: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: Colors.textPrimary },
   accountBank: { fontSize: FontSize.xs, color: Colors.textSecondary },
@@ -422,6 +471,7 @@ const styles = StyleSheet.create({
   utilPct: { fontSize: FontSize.xs, fontWeight: FontWeight.bold },
   markers: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
   markerText: { fontSize: 10, color: Colors.textMuted },
+  utilSplit: { fontSize: 11, color: Colors.textMuted, marginBottom: 6, marginTop: 4 },
   billDateInfo: { fontSize: FontSize.xs, color: Colors.warning, marginTop: 6, fontWeight: FontWeight.semibold },
   modal: { flex: 1, backgroundColor: Colors.bg },
   modalHeader: {

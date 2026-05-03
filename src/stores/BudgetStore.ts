@@ -2,6 +2,7 @@ import { makeAutoObservable, runInAction, computed } from 'mobx';
 import { db } from '../db';
 import { Transaction, IncomeSource } from '../db/models';
 import { computeBudget, BudgetAllocation } from '../utils/finance';
+import { CREDIT_CARD_BILL_PAYMENT_SUBCATEGORY } from '../utils/cardBilling';
 
 export class BudgetStore {
   transactions: Transaction[] = [];
@@ -87,6 +88,64 @@ export class BudgetStore {
       } catch (e) {
          // account not found
       }
+    });
+
+    await this.load();
+  }
+
+  /**
+   * Pay a credit card bill from a debit/savings account:
+   * - Debit account: negative txn (cash out)
+   * - Credit card: positive txn (reverses billed amount; EMI + non‑EMI utilization drop via recalc)
+   */
+  async payCreditCardBill(data: {
+    creditCardAccountId: string;
+    fromDebitAccountId: string;
+    amount: number;
+    cardLabel: string;
+    debitAccountName?: string;
+    note?: string;
+    date?: Date;
+  }) {
+    const amt = Math.abs(Number(data.amount));
+    if (!(amt > 0) || !Number.isFinite(amt)) {
+      throw new Error('Bill payment amount must be a positive number.');
+    }
+
+    await db.transactions.database.write(async () => {
+      const cc = await db.accounts.find(data.creditCardAccountId) as any;
+      const debit = await db.accounts.find(data.fromDebitAccountId) as any;
+
+      if (cc.type !== 'credit' || debit.type === 'credit') {
+        throw new Error('Invalid accounts: need a credit card and a non-credit payer account.');
+      }
+
+      const dt = data.date ?? new Date();
+      const fromName = data.debitAccountName ?? debit.name ?? 'Bank';
+
+      await db.transactions.create((t: any) => {
+        t.account.id = data.creditCardAccountId;
+        t.amount = amt;
+        t.category = 'needs';
+        t.subCategory = CREDIT_CARD_BILL_PAYMENT_SUBCATEGORY;
+        t.note = data.note ?? `Bill paid from ${fromName}`;
+        t.date = dt;
+        t.isJointExpense = false;
+      });
+
+      await db.transactions.create((t: any) => {
+        t.account.id = data.fromDebitAccountId;
+        t.amount = -amt;
+        t.category = 'needs';
+        t.subCategory = `CC bill · ${data.cardLabel}`;
+        t.note = data.note ?? `To ${data.cardLabel}`;
+        t.date = dt;
+        t.isJointExpense = false;
+      });
+
+      await debit.update((_a: any) => {
+        _a.currentBalance -= amt;
+      });
     });
 
     await this.load();

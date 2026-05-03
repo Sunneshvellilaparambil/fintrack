@@ -96,8 +96,8 @@ const BudgetScreen: React.FC = observer(({ navigation }: any) => {
 
   // All payment options: debit accounts + credit cards
   const paymentOptions = [
-    ...accounts.debitAccounts.map(a => ({ id: a.id, label: a.name, sub: a.bankName, emoji: '🏦', isCredit: false })),
-    ...accounts.creditCards.map(c => ({ id: c.id, label: `${c.bankName} ···${c.cardLast2}`, sub: c.cardType?.toUpperCase() ?? 'CARD', emoji: '💳', isCredit: true })),
+    ...accounts.debitAccounts.map(a => ({ id: a.id, label: a.name, sub: a.bankName, emoji: 'business-outline', isCredit: false })),
+    ...accounts.creditCards.map(c => ({ id: c.id, label: `${c.bankName} ···${c.cardLast2}`, sub: c.cardType?.toUpperCase() ?? 'CARD', emoji: 'card-outline', isCredit: true })),
   ];
   const [incomeForm, setIncomeForm] = useState({ name: '', amount: '', frequency: 'monthly' });
 
@@ -322,7 +322,7 @@ const BudgetScreen: React.FC = observer(({ navigation }: any) => {
               {/* Payment Method */}
               {paymentOptions.length > 0 && (
                 <>
-                  <Text style={styles.inputLabel}>💳 Payment Method</Text>
+                  <Text style={styles.inputLabel}>card-outline Payment Method</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
                     {paymentOptions.map(opt => (
                       <TouchableOpacity
@@ -350,7 +350,7 @@ const BudgetScreen: React.FC = observer(({ navigation }: any) => {
                   {txnForm.accountId && paymentOptions.find(o => o.id === txnForm.accountId)?.isCredit && (
                     <View style={styles.creditNote}>
                       <Text style={styles.creditNoteText}>
-                        💳 This spend will be tracked against the card's billing cycle
+                        card-outline This spend will be tracked against the card's billing cycle
                       </Text>
                     </View>
                   )}

@@ -247,19 +247,16 @@ export function round2(n: number): number {
   return Math.round(num * 100) / 100;
 }
 
-export function formatINR(amount: number, compact = false): string {
+/**
+ * Indian rupees with full grouping (lakhs / thousands separators). Always full digits — no “1.5K / 2L” shortening.
+ * Second arg kept for callers that passed `compact` historically; ignored.
+ */
+export function formatINR(amount: number, _compactIgnored?: boolean): string {
   const num = Number(amount);
   if (isNaN(num)) return '0';
-  
-  if (compact && Math.abs(num) >= 100000) {
-    return `${(num / 100000).toFixed(1)}L`;
-  }
-  if (compact && Math.abs(num) >= 1000) {
-    return `${(num / 1000).toFixed(1)}K`;
-  }
   return new Intl.NumberFormat('en-IN', {
     maximumFractionDigits: 0,
-  }).format(num);
+  }).format(Math.round(num));
 }
 
 export function creditUtilizationColor(utilPct: number): string {

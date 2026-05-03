@@ -138,8 +138,8 @@ const WealthScreen: React.FC = observer(() => {
 
   const tabs = [
     { key: 'portfolio', label: '📈 Portfolio' },
-    { key: 'goals', label: '🎯 Goals' },
-    { key: 'chitty', label: '🏺 Chitty' },
+    { key: 'goals', label: 'flag-outline Goals' },
+    { key: 'chitty', label: 'wallet-outline Chitty' },
     { key: 'retirement', label: '🛡 Retirement' },
     { key: 'planner', label: '🏡 Property' },
   ] as const;
@@ -230,7 +230,7 @@ const WealthScreen: React.FC = observer(() => {
             } />
 
             {wealth.stocks.length === 0 ? (
-              <EmptyState icon="📊" title="No holdings" description="Add stocks manually to track your portfolio P&L" />
+              <EmptyState icon="pie-chart-outline" title="No holdings" description="Add stocks manually to track your portfolio P&L" />
             ) : (
               wealth.stocks.map(stock => {
                 const { value: pnl, pct } = wealth.stockPnL(stock);
@@ -282,7 +282,7 @@ const WealthScreen: React.FC = observer(() => {
               </TouchableOpacity>
             } />
             {wealth.goals.length === 0 ? (
-              <EmptyState icon="🎯" title="No goals yet" description='Create goals like "Wedding Fund" or "Property Down Payment"' />
+              <EmptyState icon="flag-outline" title="No goals yet" description='Create goals like "Wedding Fund" or "Property Down Payment"' />
             ) : (
               wealth.goals.map(goal => {
                 const pct = wealth.goalProgress(goal);
@@ -328,7 +328,7 @@ const WealthScreen: React.FC = observer(() => {
         {activeTab === 'chitty' && (
           <>
             <Card style={styles.chittyInfoCard} variant="accent">
-              <Text style={styles.chittyInfoTitle}>🏺 What is a Chitty / Kuri?</Text>
+              <Text style={styles.chittyInfoTitle}>wallet-outline What is a Chitty / Kuri?</Text>
               <Text style={styles.chittyInfoText}>
                 A rotating savings scheme common in Kerala. A group contributes monthly, one member "auctions" the pot each month. The dividend is the amount below the pot value that you bid to win.
               </Text>
@@ -339,7 +339,7 @@ const WealthScreen: React.FC = observer(() => {
               </TouchableOpacity>
             } />
             {wealth.chittys.length === 0 ? (
-              <EmptyState icon="🏺" title="No Chittys tracked" description="Add your monthly Chitty/Kuri schemes" />
+              <EmptyState icon="wallet-outline" title="No Chittys tracked" description="Add your monthly Chitty/Kuri schemes" />
             ) : (
               wealth.chittys.map(chitty => {
                 const monthsElapsed = Math.floor((Date.now() - new Date(chitty.startDate).getTime()) / (30.44 * 86400000));
@@ -566,7 +566,7 @@ const WealthScreen: React.FC = observer(() => {
                     ]}
                     onPress={() => setGoalFund(p => ({ ...p, accountId: opt.id }))}
                   >
-                    <Text style={styles.paymentChipEmoji}>🏦</Text>
+                    <Text style={styles.paymentChipEmoji}>business-outline</Text>
                     <View>
                       <Text style={[
                         styles.paymentChipLabel,
@@ -628,7 +628,7 @@ const WealthScreen: React.FC = observer(() => {
                     ]}
                     onPress={() => setChittyDividend(p => ({ ...p, accountId: opt.id }))}
                   >
-                    <Text style={styles.paymentChipEmoji}>🏦</Text>
+                    <Text style={styles.paymentChipEmoji}>business-outline</Text>
                     <View>
                       <Text style={[
                         styles.paymentChipLabel,

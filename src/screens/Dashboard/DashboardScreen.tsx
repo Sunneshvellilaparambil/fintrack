@@ -14,14 +14,15 @@ import {
 import { DonutChart, BarChart, HorizontalBar, StackedBar } from '../../components/Charts';
 import { formatINR, creditUtilizationColor, calculateEMI } from '../../utils/finance';
 import { exportData, importData } from '../../utils/backup';
+import Icon from 'react-native-vector-icons/Ionicons';
 
 /* ─── helpers ─────────────────────────────────────────────────────────── */
 
 const greeting = () => {
   const h = new Date().getHours();
-  if (h < 12) return 'Good morning ☀️';
-  if (h < 17) return 'Good afternoon 🌤';
-  return 'Good evening 🌙';
+  if (h < 12) return { text: 'Good morning', icon: 'sunny' };
+  if (h < 17) return { text: 'Good afternoon', icon: 'partly-sunny' };
+  return { text: 'Good evening', icon: 'moon' };
 };
 
 const monthName = () =>
@@ -125,11 +126,14 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
         {/* ── Header ──────────────────────────────────────────── */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>{greeting()}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+              <Icon name={greeting().icon} size={16} color={Colors.warning} />
+              <Text style={styles.greeting}>{greeting().text}</Text>
+            </View>
             <Text style={styles.headerTitle}>Financial Overview</Text>
           </View>
           <TouchableOpacity style={styles.avatarBtn} activeOpacity={0.8} onPress={() => setShowSettings(true)}>
-            <Text style={styles.avatarText}>⚙️</Text>
+            <Icon name="settings-outline" size={24} color={Colors.textPrimary} />
           </TouchableOpacity>
         </View>
 
@@ -157,8 +161,8 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                 color: Colors.warning,
               },
               {
-                label: 'Credit Used',
-                value: `₹${formatINR(totalCreditUsed, true)}`,
+                label: 'Due on cards',
+                value: `₹${formatINR(totalCreditUsed)}`,
                 color: Colors.danger,
               },
               {
@@ -234,7 +238,7 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
             </>
           ) : (
             <View style={styles.emptySpend}>
-              <Text style={styles.emptyIcon}>📊</Text>
+              <Icon name="pie-chart-outline" size={48} color={Colors.textMuted} style={{ marginBottom: Spacing.sm }} />
               <Text style={styles.emptyTitle}>No spending recorded yet</Text>
               <Text style={styles.emptySub}>
                 Go to Budget → + Transaction to add spending
@@ -319,7 +323,7 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
 
         {loans.loans.length === 0 ? (
           <Card style={styles.emptyCard}>
-            <Text style={styles.emptyIcon}>📅</Text>
+            <Icon name="calendar-outline" size={48} color={Colors.textMuted} style={{ marginBottom: Spacing.sm }} />
             <Text style={styles.emptyTitle}>No active loans</Text>
             <Text style={styles.emptySub}>Add loans in EMI tab to track dues</Text>
           </Card>
@@ -350,9 +354,11 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                   <Card style={StyleSheet.flatten([styles.loanCard, { borderLeftWidth: 3, borderLeftColor: loanColor }]) as any}>
                     <View style={styles.loanRow}>
                       <View style={[styles.loanIcon, { backgroundColor: `${loanColor}18` }]}>
-                        <Text style={styles.loanEmoji}>
-                          {loan.type === 'housing' ? '🏠' : loan.type === 'vehicle' ? '🚗' : '👤'}
-                        </Text>
+                        <Icon 
+                          name={loan.type === 'housing' ? 'home' : loan.type === 'vehicle' ? 'car' : 'person'} 
+                          size={20} 
+                          color={loanColor} 
+                        />
                       </View>
                       <View style={styles.loanInfo}>
                         <Text style={styles.loanName}>{loan.lender}</Text>
@@ -445,7 +451,7 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                 style={{ marginVertical: Spacing.sm }}
               />
               <Text style={styles.utilSub}>
-                ₹{formatINR(totalCreditUsed, true)} used of ₹{formatINR(totalCreditLimit, true)} total limit
+                ₹{formatINR(totalCreditUsed)} outstanding of ₹{formatINR(totalCreditLimit)} total limit
               </Text>
             </Card>
 
@@ -457,12 +463,12 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                 <Card key={card.id} style={styles.creditCard}>
                   <View style={styles.loanRow}>
                     <View style={[styles.loanIcon, { backgroundColor: `${uc}15` }]}>
-                      <Text style={styles.loanEmoji}>💳</Text>
+                      <Icon name="card" size={20} color={uc} />
                     </View>
                     <View style={styles.loanInfo}>
                       <Text style={styles.loanName}>{card.bankName} ···{card.cardLast2}</Text>
                       <Text style={styles.cardSub}>
-                        ₹{formatINR(card.currentBalance, true)} / ₹{formatINR(card.creditLimit ?? 0, true)}
+                        ₹{formatINR(card.currentBalance)} owed · ₹{formatINR(card.creditLimit ?? 0)} limit
                       </Text>
                     </View>
                     <Text style={[styles.utilBig2, { color: uc }]}>{util.toFixed(0)}%</Text>
@@ -498,7 +504,11 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                     <View style={[styles.txnDot, {
                       backgroundColor: t.amount < 0 ? Colors.dangerDim : Colors.successDim,
                     }]}>
-                      <Text style={styles.txnDotText}>{t.amount < 0 ? '↓' : '↑'}</Text>
+                      <Icon 
+                        name={t.amount < 0 ? 'arrow-down' : 'arrow-up'} 
+                        size={16} 
+                        color={t.amount < 0 ? Colors.danger : Colors.success} 
+                      />
                     </View>
                     <View style={styles.txnInfo}>
                       <Text style={styles.txnSub}>
@@ -561,7 +571,9 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                   });
                 }}
               >
-                <Text style={styles.actionBtnEmoji}>🔄</Text>
+                <View style={styles.actionBtnIcon}>
+                  <Icon name="swap-horizontal" size={24} color={Colors.primary} />
+                </View>
                 <View>
                   <Text style={styles.actionBtnLabel}>Switch Profile</Text>
                   <Text style={styles.actionBtnSub}>Change to a different user profile</Text>
@@ -577,7 +589,9 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
               </Text>
               
               <TouchableOpacity style={styles.actionBtn} activeOpacity={0.8} onPress={exportData}>
-                <Text style={styles.actionBtnEmoji}>💾</Text>
+                <View style={styles.actionBtnIcon}>
+                  <Icon name="save-outline" size={24} color={Colors.primary} />
+                </View>
                 <View>
                   <Text style={styles.actionBtnLabel}>Backup Data</Text>
                   <Text style={styles.actionBtnSub}>Save current data to phone storage</Text>
@@ -587,7 +601,9 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
               <Divider style={{ marginVertical: Spacing.sm }} />
               
               <TouchableOpacity style={[styles.actionBtn, { marginTop: 4 }]} activeOpacity={0.8} onPress={importData}>
-                <Text style={styles.actionBtnEmoji}>📥</Text>
+                <View style={styles.actionBtnIcon}>
+                  <Icon name="download-outline" size={24} color={Colors.primary} />
+                </View>
                 <View>
                   <Text style={styles.actionBtnLabel}>Restore Data</Text>
                   <Text style={styles.actionBtnSub}>Load from a previous backup file</Text>
@@ -634,13 +650,9 @@ const styles = StyleSheet.create({
   },
   avatarBtn: {
     width: 46, height: 46, borderRadius: 23,
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.bgElevated,
     alignItems: 'center', justifyContent: 'center',
     ...Shadow.glow,
-  },
-  avatarText: {
-    fontSize: FontSize.md, color: Colors.textPrimary,
-    fontWeight: FontWeight.black,
   },
 
   // Hero
@@ -837,7 +849,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.bgCard, borderRadius: Radius.md,
     borderWidth: 1.5, borderColor: Colors.border,
   },
-  actionBtnEmoji: { fontSize: 24 },
+  actionBtnIcon: { 
+    width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.primaryDim, 
+    alignItems: 'center', justifyContent: 'center' 
+  },
   actionBtnLabel: { fontSize: FontSize.base, fontWeight: FontWeight.bold, color: Colors.textPrimary },
   actionBtnSub: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
 
