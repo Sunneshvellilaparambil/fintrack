@@ -16,8 +16,8 @@ import { Card, SectionHeader, EmptyState, Divider, ProgressBar, Badge } from '..
 import { formatINR, creditUtilizationColor } from '../../utils/finance';
 import {
   computeCreditCardOutstandingThisCycle,
-  isLoanEmiSubCategory,
-  isCreditCardBillPaymentSubCategory,
+  isEmiSubCategory as isLoanEmiSubCategory,
+  isBillPaymentSubCategory as isCreditCardBillPaymentSubCategory,
   splitOutstandingNonEmiVsEmi,
 } from '../../utils/cardBilling';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -64,31 +64,36 @@ const AccountTransactionsScreen: React.FC = observer(({ route }: any) => {
 
   const linkedLoans = accountId ? loans.loans.filter(l => l.accountId === accountId) : [];
   const creditCycle =
-    account && account.type === 'credit'
+    account && account.type === 'credit' && account.billDate  // guard: skip if no billDate
       ? (() => {
-          const cs = accounts.getStatementCycleStart(account);
-          const csMs = cs.getTime();
+          const cs    = accounts.getStatementCycleStart(account);
+          const csMs  = cs.getTime();
+          const ceMs  = accounts.getNextBillDate(account.billDate).getTime();
           return computeCreditCardOutstandingThisCycle(
             csMs,
+            ceMs,                           // ← cycleEndMs (was missing before)
             rows.map(t => ({
-              amount: t.amount,
-              date: t.date as any,
+              amount:      t.amount,
+              date:        t.date as any,
               subCategory: t.subCategory,
             })),
-            linkedLoans.map(l => ({
-              principal: l.principal,
-              roi: l.roi,
+            linkedLoans.map(l => ({         // ← loan map now includes all required fields
+              principal:    l.principal,
+              roi:          l.roi,
               tenureMonths: l.tenureMonths,
-              paidEmis: l.paidEmis,
+              paidEmis:     l.paidEmis,
+              startDate:    l.startDate,    // ← required for getNextEmiDueDate
+              emiDay:       l.emiDay,       // ← required for getNextEmiDueDate
             })),
           );
         })()
       : null;
 
-  const limit = account?.type === 'credit' ? (account.creditLimit ?? 0) : 0;
-  const utilPct =
-    account?.type === 'credit' && limit > 0 ? (account.currentBalance / limit) * 100 : 0;
-  const headroom = Math.max(0, limit - (account?.currentBalance ?? 0));
+  // Use computed outstanding from the billing cycle — not the stale stored currentBalance
+  const computedOutstanding = creditCycle?.totalOutstanding ?? 0;
+  const limit     = account?.type === 'credit' ? (account.creditLimit ?? 0) : 0;
+  const utilPct   = account?.type === 'credit' && limit > 0 ? (computedOutstanding / limit) * 100 : 0;
+  const headroom  = Math.max(0, limit - computedOutstanding);
   const utilColor = creditUtilizationColor(utilPct);
 
   if (!account) {
@@ -144,7 +149,7 @@ const AccountTransactionsScreen: React.FC = observer(({ route }: any) => {
 
         {account.type === 'credit' && creditCycle && owedSplit && (
           <Card style={styles.summaryCard}>
-            <Text style={styles.kpiBig}>₹{formatINR(account.currentBalance)} owed</Text>
+          <Text style={styles.kpiBig}>₹{formatINR(computedOutstanding)} owed</Text>
             <Text style={styles.kpiLineMuted}>
               From {accounts.getStatementCycleStart(account).toLocaleDateString('en-IN', {
                 day: '2-digit',
