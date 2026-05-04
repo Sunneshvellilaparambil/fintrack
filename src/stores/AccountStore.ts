@@ -1,17 +1,38 @@
 import { makeAutoObservable, runInAction } from 'mobx';
-import { Q } from '@nozbe/watermelondb';
 import { db } from '../db';
 import { Account } from '../db/models';
-import { computeCreditCardOutstandingThisCycle } from '../utils/cardBilling';
+import {
+  computeCreditCardOutstandingThisCycle,
+  CreditCardBreakdown,
+} from '../utils/cardBilling';
+import type { RootStore } from './index';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface CreditCardSummary extends CreditCardBreakdown {
+  card: Account;
+  cycleStart: Date;
+  cycleEnd: Date;
+  nextDue: Date;
+  daysUntilDue: number;
+  isOverdue: boolean;
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
 
 export class AccountStore {
   accounts: Account[] = [];
   loading = false;
   error: string | null = null;
 
-  constructor() {
-    makeAutoObservable(this);
+  private root: RootStore;
+
+  constructor(root: RootStore) {
+    this.root = root;
+    makeAutoObservable(this, { root: false }); // root is a static ref — don't observe it
   }
+
+  // ── Load ──────────────────────────────────────────────────────────────────
 
   async load() {
     try {
@@ -26,6 +47,8 @@ export class AccountStore {
     }
   }
 
+  // ── CRUD ──────────────────────────────────────────────────────────────────
+
   async addAccount(data: {
     name: string; type: string; bankName: string;
     cardLast2?: string; cardType?: string; creditLimit?: number;
@@ -33,15 +56,15 @@ export class AccountStore {
   }) {
     await db.accounts.database.write(async () => {
       await db.accounts.create((acc: any) => {
-        acc.name = data.name;
-        (acc as any).type = data.type;
-        (acc as any).bankName = data.bankName;
-        (acc as any).cardLast2 = data.cardLast2 ?? null;
-        (acc as any).cardType = data.cardType ?? null;
-        (acc as any).creditLimit = data.creditLimit ?? null;
-        (acc as any).currentBalance = data.currentBalance;
-        (acc as any).billDate = data.billDate ?? null;
-        (acc as any).dueDate = data.dueDate ?? null;
+        acc.name            = data.name;
+        acc.type            = data.type;
+        acc.bankName        = data.bankName;
+        acc.cardLast2       = data.cardLast2   ?? null;
+        acc.cardType        = data.cardType    ?? null;
+        acc.creditLimit     = data.creditLimit ?? null;
+        acc.currentBalance  = data.type === 'credit' ? 0 : data.currentBalance;
+        acc.billDate        = data.billDate    ?? null;
+        acc.dueDate         = data.dueDate     ?? null;
       });
     });
     await this.load();
@@ -55,14 +78,16 @@ export class AccountStore {
     await db.accounts.database.write(async () => {
       const acc = await db.accounts.find(id) as any;
       await acc.update((_acc: any) => {
-        if (data.name !== undefined) _acc.name = data.name;
-        if (data.bankName !== undefined) _acc.bankName = data.bankName;
-        if (data.cardLast2 !== undefined) _acc.cardLast2 = data.cardLast2;
-        if (data.cardType !== undefined) _acc.cardType = data.cardType;
-        if (data.creditLimit !== undefined) _acc.creditLimit = data.creditLimit;
-        if (data.currentBalance !== undefined) _acc.currentBalance = data.currentBalance;
-        if (data.billDate !== undefined) _acc.billDate = data.billDate;
-        if (data.dueDate !== undefined) _acc.dueDate = data.dueDate;
+        if (data.name           !== undefined) _acc.name           = data.name;
+        if (data.bankName       !== undefined) _acc.bankName       = data.bankName;
+        if (data.cardLast2      !== undefined) _acc.cardLast2      = data.cardLast2;
+        if (data.cardType       !== undefined) _acc.cardType       = data.cardType;
+        if (data.creditLimit    !== undefined) _acc.creditLimit    = data.creditLimit;
+        if (data.currentBalance !== undefined && acc.type !== 'credit') {
+          _acc.currentBalance = data.currentBalance; // debit only
+        }
+        if (data.billDate       !== undefined) _acc.billDate       = data.billDate;
+        if (data.dueDate        !== undefined) _acc.dueDate        = data.dueDate;
       });
     });
     await this.load();
@@ -76,88 +101,74 @@ export class AccountStore {
     await this.load();
   }
 
-  async updateAccountBalance(id: string, delta: number) {
-    await db.accounts.database.write(async () => {
-      const acc = await db.accounts.find(id);
-      await acc.update((_acc: any) => {
-        _acc.currentBalance += delta;
-      });
-    });
-    await this.load();
-  }
+  // ── Computed views ────────────────────────────────────────────────────────
 
-  /** Start of current statement window — same anchor as Bills. */
-  getStatementCycleStart(acc: Pick<Account, 'billDate' | 'lastPaidCycleStart'>): Date {
-    if (acc.billDate != null) {
-      return this.getCycleStart(acc.billDate as number);
-    }
-    return acc.lastPaidCycleStart ? new Date(acc.lastPaidCycleStart as Date) : new Date(0);
-  }
+  get debitAccounts() { return this.accounts.filter(a => a.type === 'debit'); }
+  get creditCards()   { return this.accounts.filter(a => a.type === 'credit'); }
 
-  async recalculateCardBalance(id: string) {
-    await db.accounts.database.write(async () => {
-      const acc = await db.accounts.find(id) as any;
-      if (acc.type !== 'credit') return;
-
-      const cycleStart = this.getStatementCycleStart(acc);
-      const cycleStartMs = cycleStart.getTime();
-      const cycleEnd = this.getNextBillDate(acc.billDate as number);
-      const cycleEndMs = cycleEnd.getTime();
-
-      const cardLoans = (await db.loans.query(Q.where('account_id', id)).fetch()) as any[];
-      const loanShapes = cardLoans.map((l: any) => ({
-        principal: l.principal,
-        roi: l.roi,
-        tenureMonths: l.tenureMonths,
-        paidEmis: l.paidEmis,
-        startDate: l.startDate,
-        emiDay: l.emiDay,
-      }));
-
-      const txns = await db.transactions.query(
-        Q.where('account_id', id),
-      ).fetch() as any[];
-
-      const txnShapes = txns.map((t: any) => ({
-        amount: t.amount,
-        date: t.date,
-        subCategory: t.subCategory,
-      }));
-
-      const { outstanding } = computeCreditCardOutstandingThisCycle(
-        cycleStartMs,
-        cycleEndMs,
-        txnShapes,
-        loanShapes,
-      );
-
-      await acc.update((_acc: any) => {
-        _acc.currentBalance = outstanding;
-      });
-    });
-    await this.load();
+  get totalLiquid(): number {
+    return this.debitAccounts.reduce((s, a) => s + a.currentBalance, 0);
   }
 
   /**
-   * Mark the current statement cycle as settled in the UI after a full bill payment.
-   * EMI progress stays on the EMI screen; paying the card only moves money and txns.
+   * Full billing breakdown for every credit card that has billDate + dueDate.
+   * This is a MobX @computed — it auto-recomputes whenever transactions or
+   * loans change, so no manual "recalculate" calls are needed anywhere.
    */
-  async markBillCycleSettled(creditCardId: string) {
-    await db.accounts.database.write(async () => {
-      const acc = await db.accounts.find(creditCardId) as any;
-      if (acc.billDate) {
-        const cycleStart = this.getCycleStart(acc.billDate);
-        await acc.update((_acc: any) => {
-          _acc.lastPaidCycleStart = cycleStart;
-        });
-      }
-    });
-    await this.recalculateCardBalance(creditCardId);
+  get creditCardSummaries(): CreditCardSummary[] {
+    const today = new Date();
+    const txns  = this.root.budget.transactions;
+    const loans = this.root.loans.loans;
+
+    return this.creditCards
+      .filter(c => c.billDate && c.dueDate)
+      .map(card => {
+        const cycleStart   = this.getCycleStart(card.billDate!);
+        const cycleEnd     = this.getNextBillDate(card.billDate!);
+        const nextDue      = this.getNextDueDate(card.billDate!, card.dueDate!);
+        const daysUntilDue = Math.ceil((nextDue.getTime() - today.getTime()) / 86_400_000);
+
+        const cardTxns  = txns.filter(t => t.accountId === card.id);
+        const cardLoans = loans.filter(l => l.accountId === card.id);
+
+        const breakdown = computeCreditCardOutstandingThisCycle(
+          cycleStart.getTime(),
+          cycleEnd.getTime(),
+          cardTxns.map(t => ({ amount: t.amount, date: t.date, subCategory: t.subCategory })),
+          cardLoans.map(l => ({
+            principal:    l.principal,
+            roi:          l.roi,
+            tenureMonths: l.tenureMonths,
+            paidEmis:     l.paidEmis,
+            startDate:    l.startDate,  // ← always included
+            emiDay:       l.emiDay,     // ← always included
+          })),
+        );
+
+        return {
+          card,
+          cycleStart,
+          cycleEnd,
+          nextDue,
+          daysUntilDue,
+          isOverdue: !breakdown.isPaid && daysUntilDue < 0,
+          ...breakdown,
+        };
+      })
+      .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
   }
 
-  // ── Credit Card Bill Cycle helpers (pure, no DB calls) ─────────────────
+  /** Total outstanding across all credit cards (computed, never stored). */
+  get totalCreditOutstanding(): number {
+    return this.creditCardSummaries.reduce((s, cs) => s + cs.totalOutstanding, 0);
+  }
 
-  /** Returns the start-of-cycle date (day the last bill was generated). */
+  /** @deprecated Use totalCreditOutstanding. */
+  get totalCreditUsed(): number { return this.totalCreditOutstanding; }
+
+  // ── Pure date helpers (stateless, no DB) ──────────────────────────────────
+
+  /** Start of the current billing cycle (the day the last bill was generated). */
   getCycleStart(billDay: number): Date {
     const today = new Date();
     if (today.getDate() >= billDay) {
@@ -166,7 +177,7 @@ export class AccountStore {
     return new Date(today.getFullYear(), today.getMonth() - 1, billDay);
   }
 
-  /** Returns the next bill generation date. */
+  /** Date when the NEXT bill will be generated. */
   getNextBillDate(billDay: number): Date {
     const today = new Date();
     if (today.getDate() < billDay) {
@@ -175,31 +186,25 @@ export class AccountStore {
     return new Date(today.getFullYear(), today.getMonth() + 1, billDay);
   }
 
-  /** Returns the next payment due date based on the due day. */
+  /** Date when payment is due for the current bill. */
   getNextDueDate(billDay: number, dueDay: number): Date {
-    const billGenDate = this.getCycleStart(billDay);
-    // Due date is in the NEXT month from the cycle start
-    return new Date(billGenDate.getFullYear(), billGenDate.getMonth() + 1, dueDay);
+    const cycleStart = this.getCycleStart(billDay);
+    return new Date(cycleStart.getFullYear(), cycleStart.getMonth() + 1, dueDay);
   }
 
-  /** Days until next bill generation or next payment if dueDate is provided. */
+  /** Days until next bill or due date. */
   daysUntilBill(billDay: number, dueDay?: number): number {
-    const next = dueDay ? this.getNextDueDate(billDay, dueDay) : this.getNextBillDate(billDay);
-    return Math.ceil((next.getTime() - new Date().getTime()) / 86400000);
+    const next = dueDay
+      ? this.getNextDueDate(billDay, dueDay)
+      : this.getNextBillDate(billDay);
+    return Math.ceil((next.getTime() - new Date().getTime()) / 86_400_000);
   }
 
-  // ── Computed ───────────────────────────────────────────────────────────
-
-  get debitAccounts() { return this.accounts.filter(a => a.type === 'debit'); }
-  get creditCards() { return this.accounts.filter(a => a.type === 'credit'); }
-
-  get totalLiquid() {
-    return this.debitAccounts.reduce((s, a) => s + a.currentBalance, 0);
-  }
-
-  get totalCreditUsed() {
-    return this.accounts
-      .filter(a => a.type === 'credit')
-      .reduce((s, a) => s + a.currentBalance, 0);
+  /** @deprecated — cycle is now always computed from billDate. */
+  getStatementCycleStart(acc: Pick<Account, 'billDate' | 'lastPaidCycleStart'>): Date {
+    if (acc.billDate != null) {
+      return this.getCycleStart(acc.billDate as number);
+    }
+    return acc.lastPaidCycleStart ? new Date(acc.lastPaidCycleStart as Date) : new Date(0);
   }
 }

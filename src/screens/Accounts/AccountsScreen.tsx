@@ -8,14 +8,11 @@ import { useStores } from '../../stores';
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '../../theme';
 import { Card, GlowCard, ProgressBar, Badge, SectionHeader, EmptyState, Divider, StatRow } from '../../components/shared';
 import { formatINR, creditUtilizationColor } from '../../utils/finance';
-import {
-  computeCreditCardOutstandingThisCycle,
-  splitOutstandingNonEmiVsEmi,
-} from '../../utils/cardBilling';
+import { splitOutstandingNonEmiVsEmi } from '../../utils/cardBilling';
 import Icon from 'react-native-vector-icons/Ionicons';
 
 const AccountsScreen: React.FC = observer(({ navigation }: any) => {
-  const { accounts, budget, loans } = useStores();
+  const { accounts } = useStores();
   const [showAddModal, setShowAddModal] = useState(false);
   const [form, setForm] = useState({
     name: '', type: 'debit', bankName: '',
@@ -64,15 +61,15 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
     }
 
     const data = {
-      name: form.name,
-      type: form.type,
-      bankName: form.bankName,
-      cardLast2: form.type === 'credit' ? form.cardLast2 : undefined,
-      cardType: form.type === 'credit' ? form.cardType : undefined,
-      creditLimit: form.type === 'credit' ? parseFloat(form.creditLimit) || 0 : undefined,
+      name:           form.name,
+      type:           form.type,
+      bankName:       form.bankName,
+      cardLast2:      form.type === 'credit' ? form.cardLast2   : undefined,
+      cardType:       form.type === 'credit' ? form.cardType    : undefined,
+      creditLimit:    form.type === 'credit' ? parseFloat(form.creditLimit) || 0 : undefined,
       currentBalance: parseFloat(form.currentBalance) || 0,
-      billDate: form.type === 'credit' && bDateNum ? bDateNum : undefined,
-      dueDate: form.type === 'credit' && dDateNum ? dDateNum : undefined,
+      billDate:       form.type === 'credit' && bDateNum ? bDateNum : undefined,
+      dueDate:        form.type === 'credit' && dDateNum ? dDateNum : undefined,
     };
 
     if (editingId) {
@@ -84,10 +81,10 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
     resetForm();
   };
 
-  const totalLiquid = accounts.totalLiquid;
-  const totalCreditUsed = accounts.totalCreditUsed;
+  const totalLiquid      = accounts.totalLiquid;
+  const totalCreditUsed  = accounts.totalCreditOutstanding; // computed from transactions, not stored field
   const totalCreditLimit = accounts.creditCards.reduce((s, c) => s + (c.creditLimit ?? 0), 0);
-  const overallUtil = totalCreditLimit > 0 ? (totalCreditUsed / totalCreditLimit) * 100 : 0;
+  const overallUtil      = totalCreditLimit > 0 ? (totalCreditUsed / totalCreditLimit) * 100 : 0;
 
   return (
     <>
@@ -101,21 +98,21 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
         <GlowCard glowColor={Colors.success}>
           <Text style={styles.heroLabel}>TOTAL LIQUID BALANCE</Text>
           <Text style={[styles.heroValue, { color: Colors.success }]}>
-            ₹{formatINR(totalLiquid)}
+            {'\u20b9'}{formatINR(totalLiquid)}
           </Text>
           <Divider style={{ marginVertical: Spacing.sm }} />
           <StatRow
             items={[
-              { label: 'Debit Accounts', value: `${accounts.debitAccounts.length}`, color: Colors.info },
-              { label: 'Credit Cards', value: `${accounts.creditCards.length}`, color: Colors.warning },
-              { label: 'Due on cards', value: `₹${formatINR(totalCreditUsed)}`, color: Colors.danger },
+              { label: 'Debit Accounts', value: String(accounts.debitAccounts.length), color: Colors.info },
+              { label: 'Credit Cards',   value: String(accounts.creditCards.length),   color: Colors.warning },
+              { label: 'Due on cards',   value: '\u20b9' + formatINR(totalCreditUsed), color: Colors.danger },
             ]}
           />
         </GlowCard>
 
         {/* ── Debit Accounts ──────────────────────────────── */}
         <SectionHeader
-          title={`Debit Accounts (${accounts.debitAccounts.length})`}
+          title={'Debit Accounts (' + accounts.debitAccounts.length + ')'}
           action={
             <TouchableOpacity
               style={styles.addBtn}
@@ -153,7 +150,7 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
                   </View>
                   <View style={styles.accountRight}>
                     <Text style={[styles.accountBalance, { color: Colors.success }]}>
-                      ₹{formatINR(acc.currentBalance)}
+                      {'\u20b9'}{formatINR(acc.currentBalance)}
                     </Text>
                     <Badge label="DEBIT" color={Colors.info} bgColor={Colors.infoDim} />
                   </View>
@@ -164,63 +161,25 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
         )}
 
         {/* ── Credit Cards ─────────────────────────────────── */}
-        <SectionHeader title={`Credit Cards (${accounts.creditCards.length})`} />
+        <SectionHeader title={'Credit Cards (' + accounts.creditCards.length + ')'} />
 
         {accounts.creditCards.length === 0 ? (
           <EmptyState icon="card-outline" title="No credit cards" description="Add cards to track utilization and due dates" />
         ) : (
-          accounts.creditCards.map(card => {
-            const csMs = accounts.getStatementCycleStart(card).getTime();
-            const cardTxShapes = budget.transactions
-              .filter(t => t.accountId === card.id)
-              .map(t => ({
-                amount: t.amount,
-                date: t.date as any,
-                subCategory: t.subCategory,
-              }));
-            const loanShapes = loans.loans
-              .filter(l => l.accountId === card.id)
-              .map(l => ({
-                principal: l.principal,
-                roi: l.roi,
-                tenureMonths: l.tenureMonths,
-                paidEmis: l.paidEmis,
-                startDate: l.startDate,
-                emiDay: l.emiDay,
-              }));
-            const nextBillDate = accounts.getNextBillDate(card.billDate as number);
-            const cyc = computeCreditCardOutstandingThisCycle(
-              csMs,
-              nextBillDate.getTime(),
-              cardTxShapes,
-              loanShapes
-            );
-            const owedSplit = splitOutstandingNonEmiVsEmi({
-              nonEmiCycleNet: cyc.nonEmiCycleNet,
-              remainingEmiLiabilityTotal: cyc.remainingEmiLiabilityTotal,
-            });
+          // Use creditCardSummaries @computed — no manual billing call needed
+          accounts.creditCardSummaries.map(summary => {
+            const {
+              card, nextDue, daysUntilDue, isPaid,
+              totalOutstanding, nonEmiCycleSpend, remainingEmiTotal,
+            } = summary;
 
-            const util = card.creditLimit
-              ? (card.currentBalance / card.creditLimit) * 100 : 0;
-            const available = (card.creditLimit ?? 0) - card.currentBalance;
+            const owedSplit = splitOutstandingNonEmiVsEmi({ nonEmiCycleSpend, remainingEmiTotal });
+
+            // Utilization from computed outstanding (never from stored currentBalance)
+            const util      = card.creditLimit ? (totalOutstanding / card.creditLimit) * 100 : 0;
+            const available = (card.creditLimit ?? 0) - totalOutstanding;
             const utilColor = creditUtilizationColor(util);
             const utilLabel = util > 100 ? 'Over Limit' : util < 30 ? 'Healthy' : util < 50 ? 'Moderate' : 'High';
-            const today = new Date();
-            const bDay = card.billDate;
-            const dDay = card.dueDate;
-            
-            let nextDue: Date | null = null;
-            if (bDay) {
-              if (dDay) {
-                 nextDue = accounts.getNextDueDate(bDay, dDay);
-              } else {
-                 nextDue = accounts.getNextBillDate(bDay);
-              }
-            }
-            
-            const daysUntilDue = nextDue
-              ? Math.ceil((nextDue.getTime() - today.getTime()) / 86400000)
-              : null;
 
             return (
               <Card key={card.id} style={styles.creditCard}>
@@ -236,44 +195,45 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
                   }}
                 >
                   <View style={styles.accountRow}>
-                    <View style={[styles.accountIcon, { backgroundColor: `${utilColor}18` }]}>
+                    <View style={[styles.accountIcon, { backgroundColor: utilColor + '18' }]}>
                       <Icon name="card" size={20} color={utilColor} />
                     </View>
                     <View style={styles.accountInfo}>
-                      <Text style={styles.accountName}>{card.bankName} ···{card.cardLast2}</Text>
+                      <Text style={styles.accountName}>{card.bankName} \u00b7\u00b7\u00b7{card.cardLast2}</Text>
                       <View style={styles.badgeRow}>
                         <Badge
                           label={card.cardType?.toUpperCase() ?? 'CARD'}
                           color={Colors.textSecondary}
                           bgColor={Colors.bgElevated}
                         />
-                        {daysUntilDue !== null && (
-                          <Badge
-                            label={dDay ? `Due in ${daysUntilDue}d` : `Bill in ${daysUntilDue}d`}
-                            color={daysUntilDue <= 5 ? Colors.danger : Colors.warning}
-                            bgColor={daysUntilDue <= 5 ? `${Colors.danger}18` : `${Colors.warning}18`}
-                          />
-                        )}
+                        <Badge
+                          label={isPaid ? 'PAID \u2705' : 'Due in ' + daysUntilDue + 'd'}
+                          color={isPaid ? Colors.success : daysUntilDue <= 5 ? Colors.danger : Colors.warning}
+                          bgColor={isPaid ? Colors.successDim : daysUntilDue <= 5 ? Colors.danger + '18' : Colors.warning + '18'}
+                        />
                       </View>
                     </View>
                     <View style={styles.accountRight}>
                       <Text style={[styles.accountBalance, { color: utilColor }]}>
-                        {util > 100 ? '100%+' : `${util.toFixed(0)}%`}
+                        {util > 100 ? '100%+' : util.toFixed(0) + '%'}
                       </Text>
-                      <Badge label={utilLabel} color={utilColor} bgColor={`${utilColor}18`} />
+                      <Badge label={utilLabel} color={utilColor} bgColor={utilColor + '18'} />
                     </View>
                   </View>
-                    <View style={styles.utilDetails}>
+
+                  <View style={styles.utilDetails}>
                     <View style={styles.utilRow}>
                       <Text style={styles.utilLabel}>
                         {available < 0
-                          ? `Outstanding ₹${formatINR(card.currentBalance)} · over limit by ₹${formatINR(Math.abs(available))}`
-                          : `Outstanding ₹${formatINR(card.currentBalance)} · credit left ₹${formatINR(available)}`}
+                          ? 'Outstanding \u20b9' + formatINR(totalOutstanding) + ' \u00b7 over limit by \u20b9' + formatINR(Math.abs(available))
+                          : 'Outstanding \u20b9' + formatINR(totalOutstanding) + ' \u00b7 credit left \u20b9' + formatINR(available)}
                       </Text>
-                      <Text style={[styles.utilPct, { color: utilColor }]}>{util > 100 ? '100%+' : `${util.toFixed(1)}%`}</Text>
+                      <Text style={[styles.utilPct, { color: utilColor }]}>
+                        {util > 100 ? '100%+' : util.toFixed(1) + '%'}
+                      </Text>
                     </View>
                     <Text style={styles.utilSplit}>
-                      Non‑EMI (cycle) ₹{formatINR(owedSplit.nonEmiOutstanding)} · Remaining EMI (all dues) ₹{formatINR(owedSplit.emiOutstanding)}
+                      {'Cycle spends \u20b9' + formatINR(owedSplit.nonEmiOutstanding) + ' \u00b7 Future EMIs \u20b9' + formatINR(owedSplit.emiOutstanding)}
                     </Text>
                     <ProgressBar pct={Math.min(100, util)} color={utilColor} height={8} />
                     <View style={styles.markers}>
@@ -282,14 +242,12 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
                       <Text style={[styles.markerText, { color: Colors.danger }]}>50%</Text>
                       <Text style={styles.markerText}>100%</Text>
                     </View>
-                    {nextDue && (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 4 }}>
-                        <Icon name="calendar-outline" size={14} color={Colors.warning} />
-                        <Text style={[styles.billDateInfo, { marginTop: 0 }]}>
-                          {dDay ? 'Next due date' : 'Next bill'}: {nextDue.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </Text>
-                      </View>
-                    )}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 4 }}>
+                      <Icon name="calendar-outline" size={14} color={Colors.warning} />
+                      <Text style={[styles.billDateInfo, { marginTop: 0 }]}>
+                        {'Due: ' + nextDue.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </Text>
+                    </View>
                   </View>
                 </TouchableOpacity>
               </Card>
@@ -303,7 +261,7 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editingId ? 'Edit Account' : 'Add Account'}</Text>
               <TouchableOpacity style={styles.modalCloseBtn} onPress={() => { setShowAddModal(false); resetForm(); }}>
-                <Text style={styles.modalClose}>✕</Text>
+                <Text style={styles.modalClose}>\u2715</Text>
               </TouchableOpacity>
             </View>
 
@@ -316,10 +274,10 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
                     style={[styles.typeBtn, form.type === t && styles.typeBtnActive]}
                     onPress={() => setForm(f => ({ ...f, type: t }))}
                   >
-                    <Icon 
-                      name={t === 'debit' ? 'business' : 'card'} 
-                      size={16} 
-                      color={form.type === t ? Colors.primary : Colors.textSecondary} 
+                    <Icon
+                      name={t === 'debit' ? 'business' : 'card'}
+                      size={16}
+                      color={form.type === t ? Colors.primary : Colors.textSecondary}
                     />
                     <Text style={[styles.typeBtnText, form.type === t && styles.typeBtnTextActive]}>
                       {t === 'debit' ? 'Debit' : 'Credit'}
@@ -329,9 +287,9 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
               </View>
 
               {[
-                { label: 'Account Name *', key: 'name', placeholder: 'e.g. SBI Savings' },
-                { label: 'Bank Name *', key: 'bankName', placeholder: 'e.g. State Bank of India' },
-                ...(form.type === 'debit' ? [{ label: 'Current Balance (₹)', key: 'currentBalance', placeholder: '0', keyboard: 'decimal-pad' }] : []),
+                { label: 'Account Name *',  key: 'name',        placeholder: 'e.g. SBI Savings' },
+                { label: 'Bank Name *',     key: 'bankName',    placeholder: 'e.g. State Bank of India' },
+                ...(form.type === 'debit' ? [{ label: 'Current Balance (\u20b9)', key: 'currentBalance', placeholder: '0', keyboard: 'decimal-pad' }] : []),
               ].map(({ label, key, placeholder, keyboard }) => (
                 <View key={key}>
                   <Text style={styles.inputLabel}>{label}</Text>
@@ -378,7 +336,7 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
                     ))}
                   </View>
 
-                  <Text style={styles.inputLabel}>Credit Limit (₹)</Text>
+                  <Text style={styles.inputLabel}>Credit Limit (\u20b9)</Text>
                   <TextInput
                     style={styles.input}
                     value={form.creditLimit}
@@ -401,7 +359,7 @@ const AccountsScreen: React.FC = observer(({ navigation }: any) => {
                     keyboardType="numeric"
                     maxLength={2}
                   />
-                  
+
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: Spacing.base, marginBottom: Spacing.xs }}>
                     <Icon name="calendar-outline" size={16} color={Colors.textSecondary} />
                     <Text style={[styles.inputLabel, { marginTop: 0, marginBottom: 0 }]}>Payment Due Day (1-31)</Text>
@@ -440,93 +398,55 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
   content: { paddingTop: Spacing.lg },
   heroLabel: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    fontWeight: FontWeight.semibold,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-    marginBottom: 4,
+    fontSize: FontSize.xs, color: Colors.textMuted,
+    fontWeight: FontWeight.semibold, letterSpacing: 1.2,
+    textTransform: 'uppercase', marginBottom: 4,
   },
   heroValue: {
-    fontSize: FontSize.xxl,
-    fontWeight: FontWeight.black,
-    letterSpacing: -1,
-    marginBottom: 2,
+    fontSize: FontSize.xxl, fontWeight: FontWeight.black, letterSpacing: -1, marginBottom: 2,
   },
   addBtn: {
     backgroundColor: Colors.primary,
-    paddingHorizontal: Spacing.base,
-    paddingVertical: 6,
-    borderRadius: Radius.full,
+    paddingHorizontal: Spacing.base, paddingVertical: 6, borderRadius: Radius.full,
   },
   addBtnText: { color: Colors.textPrimary, fontSize: FontSize.xs, fontWeight: FontWeight.bold },
-  accountCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.sm },
-  creditCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.sm },
-  accountRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  accountIcon: {
-    width: 46, height: 46, borderRadius: Radius.md,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  accountInfo: { flex: 1, gap: 4 },
-  accountName: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: Colors.textPrimary },
-  accountBank: { fontSize: FontSize.xs, color: Colors.textSecondary },
+  accountCard:  { marginHorizontal: Spacing.base, marginBottom: Spacing.sm },
+  creditCard:   { marginHorizontal: Spacing.base, marginBottom: Spacing.sm },
+  accountRow:   { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  accountIcon:  { width: 46, height: 46, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  accountInfo:  { flex: 1, gap: 4 },
+  accountName:  { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: Colors.textPrimary },
+  accountBank:  { fontSize: FontSize.xs, color: Colors.textSecondary },
   accountRight: { alignItems: 'flex-end', gap: 4 },
   accountBalance: { fontSize: FontSize.md, fontWeight: FontWeight.black },
-  badgeRow: { flexDirection: 'row', gap: 4, flexWrap: 'wrap' },
-  utilDetails: { marginTop: Spacing.sm },
-  utilRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  utilLabel: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  utilPct: { fontSize: FontSize.xs, fontWeight: FontWeight.bold },
-  markers: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
-  markerText: { fontSize: 10, color: Colors.textMuted },
-  utilSplit: { fontSize: 11, color: Colors.textMuted, marginBottom: 6, marginTop: 4 },
+  badgeRow:     { flexDirection: 'row', gap: 4, flexWrap: 'wrap' },
+  utilDetails:  { marginTop: Spacing.sm },
+  utilRow:      { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  utilLabel:    { fontSize: FontSize.xs, color: Colors.textSecondary, flex: 1 },
+  utilPct:      { fontSize: FontSize.xs, fontWeight: FontWeight.bold },
+  markers:      { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
+  markerText:   { fontSize: 10, color: Colors.textMuted },
+  utilSplit:    { fontSize: 11, color: Colors.textMuted, marginBottom: 6, marginTop: 4 },
   billDateInfo: { fontSize: FontSize.xs, color: Colors.warning, marginTop: 6, fontWeight: FontWeight.semibold },
-  modal: { flex: 1, backgroundColor: Colors.bg },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: Spacing.base,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    paddingTop: Spacing.lg,
+  modal:        { flex: 1, backgroundColor: Colors.bg },
+  modalHeader:  {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    padding: Spacing.base, borderBottomWidth: 1, borderBottomColor: Colors.border, paddingTop: Spacing.lg,
   },
-  modalTitle: { fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.textPrimary },
-  modalCloseBtn: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: Colors.bgElevated,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  modalClose: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: FontWeight.bold },
-  modalBody: { padding: Spacing.base },
-  inputLabel: {
-    fontSize: FontSize.sm, color: Colors.textSecondary,
-    marginBottom: Spacing.xs, marginTop: Spacing.base,
-    fontWeight: FontWeight.semibold,
-  },
-  input: {
-    backgroundColor: Colors.bgCard, borderRadius: Radius.md,
-    padding: Spacing.base, color: Colors.textPrimary,
-    fontSize: FontSize.base, borderWidth: 1, borderColor: Colors.border,
-  },
+  modalTitle:    { fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.textPrimary },
+  modalCloseBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.bgElevated, alignItems: 'center', justifyContent: 'center' },
+  modalClose:    { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: FontWeight.bold },
+  modalBody:     { padding: Spacing.base },
+  inputLabel:    { fontSize: FontSize.sm, color: Colors.textSecondary, marginBottom: Spacing.xs, marginTop: Spacing.base, fontWeight: FontWeight.semibold },
+  input:         { backgroundColor: Colors.bgCard, borderRadius: Radius.md, padding: Spacing.base, color: Colors.textPrimary, fontSize: FontSize.base, borderWidth: 1, borderColor: Colors.border },
   inputHighlight: { borderColor: Colors.warning, borderWidth: 1.5 },
-  typeRow: { flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap', marginTop: 4 },
-  typeBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: Spacing.base, paddingVertical: Spacing.sm,
-    borderRadius: Radius.full, borderWidth: 1.5,
-    borderColor: Colors.border, backgroundColor: Colors.bgCard,
-  },
-  typeBtnActive: { backgroundColor: `${Colors.primary}18`, borderColor: Colors.primary },
-  typeBtnEmoji: { fontSize: 14 },
-  typeBtnText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: FontWeight.medium },
+  typeRow:       { flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap', marginTop: 4 },
+  typeBtn:       { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.base, paddingVertical: Spacing.sm, borderRadius: Radius.full, borderWidth: 1.5, borderColor: Colors.border, backgroundColor: Colors.bgCard },
+  typeBtnActive: { backgroundColor: Colors.primary + '18', borderColor: Colors.primary },
+  typeBtnText:   { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: FontWeight.medium },
   typeBtnTextActive: { color: Colors.textPrimary, fontWeight: FontWeight.bold },
-  securityNote: { fontSize: FontSize.xs, color: Colors.success, marginTop: 6 },
-  billDateHint: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 6, lineHeight: 18 },
-  saveBtn: {
-    backgroundColor: Colors.primary, borderRadius: Radius.md,
-    padding: Spacing.base, alignItems: 'center',
-    marginTop: Spacing.xl, marginBottom: Spacing.xxl, ...Shadow.glow,
-  },
-  saveBtnText: { color: Colors.textPrimary, fontWeight: FontWeight.black, fontSize: FontSize.base },
+  securityNote:  { fontSize: FontSize.xs, color: Colors.success, marginTop: 6 },
+  billDateHint:  { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 6, lineHeight: 18 },
+  saveBtn:       { backgroundColor: Colors.primary, borderRadius: Radius.md, padding: Spacing.base, alignItems: 'center', marginTop: Spacing.xl, marginBottom: Spacing.xxl, ...Shadow.glow },
+  saveBtnText:   { color: Colors.textPrimary, fontWeight: FontWeight.black, fontSize: FontSize.base },
 });

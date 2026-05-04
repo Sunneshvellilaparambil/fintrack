@@ -1,43 +1,65 @@
+import React from 'react';
+import { AuthStore } from './AuthStore';
 import { AccountStore } from './AccountStore';
 import { BudgetStore } from './BudgetStore';
 import { LoanStore } from './LoanStore';
 import { JointVentureStore } from './JointVentureStore';
 import { WealthStore } from './WealthStore';
-import { AuthStore } from './AuthStore';
 import { VehicleStore } from './VehicleStore';
-import React from 'react';
 
-export const stores = {
-  auth: new AuthStore(),
-  accounts: new AccountStore(),
-  budget: new BudgetStore(),
-  loans: new LoanStore(),
-  jointVenture: new JointVentureStore(),
-  wealth: new WealthStore(),
-  vehicles: new VehicleStore(),
-};
+// ─── RootStore ───────────────────────────────────────────────────────────────
+// Owns all child stores and wires their cross-store dependencies.
+// Screens destructure from this: const { accounts, budget, loans } = useStores()
+// ─────────────────────────────────────────────────────────────────────────────
 
-export type Stores = typeof stores;
+export class RootStore {
+  auth: AuthStore;
+  accounts: AccountStore;
+  budget: BudgetStore;
+  loans: LoanStore;
+  jointVenture: JointVentureStore;
+  wealth: WealthStore;
+  vehicles: VehicleStore;
 
-const StoreContext = React.createContext<Stores>(stores);
+  constructor() {
+    this.auth         = new AuthStore(this);
+    this.accounts     = new AccountStore(this);
+    this.budget       = new BudgetStore(this);
+    this.loans        = new LoanStore(this);
+    this.jointVenture = new JointVentureStore(this);
+    this.wealth       = new WealthStore(this);
+    this.vehicles     = new VehicleStore(this);
+  }
 
-export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  React.createElement(StoreContext.Provider, { value: stores }, children)
-);
+  /** Load all stores after the DB is initialised for the active profile. */
+  async loadAll() {
+    await Promise.all([
+      this.accounts.load(),
+      this.budget.load(),
+      this.loans.load(),
+      this.jointVenture.load(),
+      this.wealth.load(),
+      this.vehicles.load(),
+    ]);
+    // No manual recalculate calls needed — AccountStore.creditCardSummaries
+    // is a MobX @computed that auto-updates when budget/loans change.
+  }
+}
+
+export type Stores = RootStore;
+
+// ─── Singleton + Context ─────────────────────────────────────────────────────
+
+export const stores = new RootStore();
+
+const StoreContext = React.createContext<RootStore>(stores);
+
+export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+  React.createElement(StoreContext.Provider, { value: stores }, children);
 
 export const useStores = () => React.useContext(StoreContext);
 
-// Load all stores after auth succeeds
+/** @deprecated Use stores.loadAll() directly. Kept for backward compat. */
 export async function loadAllStores() {
-  await Promise.all([
-    stores.accounts.load(),
-    stores.budget.load(),
-    stores.loans.load(),
-    stores.jointVenture.load(),
-    stores.wealth.load(),
-    stores.vehicles.load(),
-  ]);
-  for (const c of stores.accounts.creditCards) {
-    await stores.accounts.recalculateCardBalance(c.id);
-  }
+  await stores.loadAll();
 }

@@ -43,14 +43,10 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
 
   /* ── computed values ─────────────────────────────────────────── */
 
-  const totalCreditUsed = accounts.creditCards.reduce(
-    (s, c) => s + (c.currentBalance ?? 0), 0,
-  );
-  const totalCreditLimit = accounts.creditCards.reduce(
-    (s, c) => s + (c.creditLimit ?? 0), 0,
-  );
-  const overallUtil = totalCreditLimit > 0
-    ? (totalCreditUsed / totalCreditLimit) * 100 : 0;
+  // Credit card totals from @computed (never from stored currentBalance)
+  const totalCreditUsed  = accounts.totalCreditOutstanding;
+  const totalCreditLimit = accounts.creditCards.reduce((s, c) => s + (c.creditLimit ?? 0), 0);
+  const overallUtil      = totalCreditLimit > 0 ? (totalCreditUsed / totalCreditLimit) * 100 : 0;
   const overallUtilColor = creditUtilizationColor(overallUtil);
 
   const b = budget.budget;
@@ -462,23 +458,24 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
               </Text>
             </Card>
 
-            {accounts.creditCards.map(card => {
+            {accounts.creditCardSummaries.map(summary => {
+              const { card, totalOutstanding } = summary;
               const util = card.creditLimit
-                ? (card.currentBalance / card.creditLimit) * 100 : 0;
+                ? (totalOutstanding / card.creditLimit) * 100 : 0;
               const uc = creditUtilizationColor(util);
               return (
                 <Card key={card.id} style={styles.creditCard}>
                   <View style={styles.loanRow}>
-                    <View style={[styles.loanIcon, { backgroundColor: `${uc}15` }]}>
+                    <View style={[styles.loanIcon, { backgroundColor: uc + '15' }]}>
                       <Icon name="card" size={20} color={uc} />
                     </View>
                     <View style={styles.loanInfo}>
                       <Text style={styles.loanName}>{card.bankName} ···{card.cardLast2}</Text>
                       <Text style={styles.cardSub}>
-                        ₹{formatINR(card.currentBalance)} owed · ₹{formatINR(card.creditLimit ?? 0)} limit
+                        {'₹'}{formatINR(totalOutstanding)} owed · {'₹'}{formatINR(card.creditLimit ?? 0)} limit
                       </Text>
                     </View>
-                    <Text style={[styles.utilBig2, { color: uc }]}>{util > 100 ? '100%+' : `${util.toFixed(0)}%`}</Text>
+                    <Text style={[styles.utilBig2, { color: uc }]}>{util > 100 ? '100%+' : util.toFixed(0) + '%'}</Text>
                   </View>
                   <ProgressBar pct={util} color={uc} height={6} style={{ marginTop: Spacing.sm }} />
                 </Card>

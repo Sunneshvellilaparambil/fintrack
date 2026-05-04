@@ -2,15 +2,19 @@ import { makeAutoObservable, runInAction } from 'mobx';
 import { db } from '../db';
 import { Stock, Goal, Chitty } from '../db/models';
 import { round2 } from '../utils/finance';
+import type { RootStore } from './index';
 
 export class WealthStore {
-  stocks: Stock[] = [];
-  goals: Goal[] = [];
+  stocks: Stock[]  = [];
+  goals: Goal[]    = [];
   chittys: Chitty[] = [];
   loading = false;
 
-  constructor() {
-    makeAutoObservable(this);
+  private root: RootStore;
+
+  constructor(root: RootStore) {
+    this.root = root;
+    makeAutoObservable(this, { root: false });
   }
 
   async load() {
@@ -21,62 +25,45 @@ export class WealthStore {
       db.chittys.query().fetch(),
     ]);
     runInAction(() => {
-      this.stocks = stocks;
-      this.goals = goals;
+      this.stocks  = stocks;
+      this.goals   = goals;
       this.chittys = chittys;
       this.loading = false;
     });
   }
 
-  // ── Portfolio ────────────────────────────────────────────────────────────
-  get portfolioValue(): number {
-    return round2(this.stocks.reduce((s, st) => s + st.quantity * st.currentPrice, 0));
-  }
-
-  get portfolioCost(): number {
-    return round2(this.stocks.reduce((s, st) => s + st.quantity * st.avgBuyPrice, 0));
-  }
-
-  get portfolioPnL(): number {
-    return round2(this.portfolioValue - this.portfolioCost);
-  }
-
-  get portfolioPnLPct(): number {
-    if (this.portfolioCost === 0) return 0;
-    return round2((this.portfolioPnL / this.portfolioCost) * 100);
+  // ── Portfolio ─────────────────────────────────────────────────────────────
+  get portfolioValue():   number { return round2(this.stocks.reduce((s, st) => s + st.quantity * st.currentPrice, 0)); }
+  get portfolioCost():    number { return round2(this.stocks.reduce((s, st) => s + st.quantity * st.avgBuyPrice, 0)); }
+  get portfolioPnL():     number { return round2(this.portfolioValue - this.portfolioCost); }
+  get portfolioPnLPct():  number {
+    return this.portfolioCost === 0 ? 0 : round2((this.portfolioPnL / this.portfolioCost) * 100);
   }
 
   stockPnL(stock: Stock): { value: number; pct: number } {
-    const cost = stock.quantity * stock.avgBuyPrice;
+    const cost  = stock.quantity * stock.avgBuyPrice;
     const value = stock.quantity * stock.currentPrice;
-    const pnl = value - cost;
-    const pct = cost === 0 ? 0 : (pnl / cost) * 100;
-    return { value: round2(pnl), pct: round2(pct) };
+    const pnl   = value - cost;
+    return { value: round2(pnl), pct: round2(cost === 0 ? 0 : (pnl / cost) * 100) };
   }
 
-  // ── Goals ───────────────────────────────────────────────────────────────
+  // ── Goals ─────────────────────────────────────────────────────────────────
   goalProgress(goal: Goal): number {
-    if (goal.targetAmount === 0) return 0;
-    return round2((goal.currentAmount / goal.targetAmount) * 100);
+    return goal.targetAmount === 0 ? 0 : round2((goal.currentAmount / goal.targetAmount) * 100);
   }
+  get totalGoalsFunded(): number { return round2(this.goals.reduce((s, g) => s + g.currentAmount, 0)); }
 
-  get totalGoalsFunded(): number {
-    return round2(this.goals.reduce((s, g) => s + g.currentAmount, 0));
-  }
+  // ── CRUD ──────────────────────────────────────────────────────────────────
 
-  // ── CRUD ─────────────────────────────────────────────────────────────────
-  async addStock(data: {
-    symbol: string; name: string; quantity: number;
-    avgBuyPrice: number; currentPrice: number;
-  }) {
+  async addStock(data: { symbol: string; name: string; quantity: number; avgBuyPrice: number; currentPrice: number }) {
     await db.stocks.database.write(async () => {
       await db.stocks.create(s => {
-        (s as any).symbol = data.symbol;
-        (s as any).name = data.name;
-        (s as any).quantity = data.quantity;
-        (s as any).avgBuyPrice = data.avgBuyPrice;
+        (s as any).symbol       = data.symbol;
+        (s as any).name         = data.name;
+        (s as any).quantity     = data.quantity;
+        (s as any).avgBuyPrice  = data.avgBuyPrice;
         (s as any).currentPrice = data.currentPrice;
-        (s as any).lastUpdated = new Date();
+        (s as any).lastUpdated  = new Date();
       });
     });
     await this.load();
@@ -87,20 +74,39 @@ export class WealthStore {
       const stock = await db.stocks.find(stockId);
       await stock.update(s => {
         (s as any).currentPrice = currentPrice;
-        (s as any).lastUpdated = new Date();
+        (s as any).lastUpdated  = new Date();
       });
     });
+    await this.load();
+  }
+
+  async deleteStock(id: string) {
+    await db.stocks.database.write(async () => { (await db.stocks.find(id)).destroyPermanently(); });
     await this.load();
   }
 
   async addGoal(data: { name: string; targetAmount: number; targetDate: Date; color: string }) {
     await db.goals.database.write(async () => {
       await db.goals.create(g => {
-        (g as any).name = data.name;
-        (g as any).targetAmount = data.targetAmount;
+        (g as any).name          = data.name;
+        (g as any).targetAmount  = data.targetAmount;
         (g as any).currentAmount = 0;
-        (g as any).targetDate = data.targetDate;
-        (g as any).color = data.color;
+        (g as any).targetDate    = data.targetDate;
+        (g as any).color         = data.color;
+      });
+    });
+    await this.load();
+  }
+
+  async updateGoal(id: string, data: { name?: string; targetAmount?: number; currentAmount?: number; targetDate?: Date; color?: string }) {
+    await db.goals.database.write(async () => {
+      const g = await db.goals.find(id) as any;
+      await g.update((_g: any) => {
+        if (data.name          !== undefined) _g.name          = data.name;
+        if (data.targetAmount  !== undefined) _g.targetAmount  = data.targetAmount;
+        if (data.currentAmount !== undefined) _g.currentAmount = data.currentAmount;
+        if (data.targetDate    !== undefined) _g.targetDate    = data.targetDate;
+        if (data.color         !== undefined) _g.color         = data.color;
       });
     });
     await this.load();
@@ -116,51 +122,21 @@ export class WealthStore {
     await this.load();
   }
 
-  async addChitty(data: {
-    name: string; monthlyInstallment: number;
-    totalValue: number; durationMonths: number; startDate: Date;
-  }) {
+  async deleteGoal(id: string) {
+    await db.goals.database.write(async () => { (await db.goals.find(id)).destroyPermanently(); });
+    await this.load();
+  }
+
+  async addChitty(data: { name: string; monthlyInstallment: number; totalValue: number; durationMonths: number; startDate: Date }) {
     await db.chittys.database.write(async () => {
       await db.chittys.create(c => {
-        (c as any).name = data.name;
-        (c as any).monthlyInstallment = data.monthlyInstallment;
-        (c as any).totalValue = data.totalValue;
-        (c as any).durationMonths = data.durationMonths;
-        (c as any).startDate = data.startDate;
-        (c as any).auctionDividends = 0;
+        (c as any).name                = data.name;
+        (c as any).monthlyInstallment  = data.monthlyInstallment;
+        (c as any).totalValue          = data.totalValue;
+        (c as any).durationMonths      = data.durationMonths;
+        (c as any).startDate           = data.startDate;
+        (c as any).auctionDividends    = 0;
       });
-    });
-    await this.load();
-  }
-
-  async addAuctionDividend(chittyId: string, dividend: number) {
-    await db.chittys.database.write(async () => {
-      const chitty = await db.chittys.find(chittyId);
-      await chitty.update(c => {
-        (c as any).auctionDividends = c.auctionDividends + dividend;
-      });
-    });
-    await this.load();
-  }
-
-  async updateGoal(id: string, data: { name?: string; targetAmount?: number; currentAmount?: number; targetDate?: Date; color?: string }) {
-    await db.goals.database.write(async () => {
-      const g = await db.goals.find(id) as any;
-      await g.update((_g: any) => {
-        if (data.name !== undefined) _g.name = data.name;
-        if (data.targetAmount !== undefined) _g.targetAmount = data.targetAmount;
-        if (data.currentAmount !== undefined) _g.currentAmount = data.currentAmount;
-        if (data.targetDate !== undefined) _g.targetDate = data.targetDate;
-        if (data.color !== undefined) _g.color = data.color;
-      });
-    });
-    await this.load();
-  }
-
-  async deleteGoal(id: string) {
-    await db.goals.database.write(async () => {
-      const g = await db.goals.find(id);
-      await g.destroyPermanently();
     });
     await this.load();
   }
@@ -169,30 +145,27 @@ export class WealthStore {
     await db.chittys.database.write(async () => {
       const c = await db.chittys.find(id) as any;
       await c.update((_c: any) => {
-        if (data.name !== undefined) _c.name = data.name;
+        if (data.name               !== undefined) _c.name               = data.name;
         if (data.monthlyInstallment !== undefined) _c.monthlyInstallment = data.monthlyInstallment;
-        if (data.totalValue !== undefined) _c.totalValue = data.totalValue;
-        if (data.durationMonths !== undefined) _c.durationMonths = data.durationMonths;
-        if (data.startDate !== undefined) _c.startDate = data.startDate;
-        if (data.auctionDividends !== undefined) _c.auctionDividends = data.auctionDividends;
+        if (data.totalValue         !== undefined) _c.totalValue         = data.totalValue;
+        if (data.durationMonths     !== undefined) _c.durationMonths     = data.durationMonths;
+        if (data.startDate          !== undefined) _c.startDate          = data.startDate;
+        if (data.auctionDividends   !== undefined) _c.auctionDividends   = data.auctionDividends;
       });
     });
     await this.load();
   }
 
-  async deleteChitty(id: string) {
+  async addAuctionDividend(chittyId: string, dividend: number) {
     await db.chittys.database.write(async () => {
-      const c = await db.chittys.find(id);
-      await c.destroyPermanently();
+      const chitty = await db.chittys.find(chittyId);
+      await chitty.update(c => { (c as any).auctionDividends = c.auctionDividends + dividend; });
     });
     await this.load();
   }
 
-  async deleteStock(id: string) {
-    await db.stocks.database.write(async () => {
-      const s = await db.stocks.find(id);
-      await s.destroyPermanently();
-    });
+  async deleteChitty(id: string) {
+    await db.chittys.database.write(async () => { (await db.chittys.find(id)).destroyPermanently(); });
     await this.load();
   }
 }
