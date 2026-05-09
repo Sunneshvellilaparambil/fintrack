@@ -1,0 +1,273 @@
+{
+  "version": 3,
+  "timestamp": "2026-05-09T10:15:00.000Z",
+  "profileId": "demo_profile_suneesh",
+  "profileName": "Demo Stakeholder Profile",
+  "data": {
+    "accounts": [
+      {
+        "id": "acc_savings",
+        "name": "HDFC Savings Account",
+        "type": "debit",
+        "bank_name": "HDFC Bank",
+        "current_balance": 156420.50,
+        "created_at": 1715000000000
+      },
+      {
+        "id": "acc_cc",
+        "name": "ICICI Amazon Pay CC",
+        "type": "credit",
+        "bank_name": "ICICI Bank",
+        "card_last2": "88",
+        "card_type": "visa",
+        "credit_limit": 250000,
+        "current_balance": -12450.75,
+        "bill_date": 15,
+        "due_date": 5,
+        "last_paid_cycle_start": 1744675200000,
+        "created_at": 1715000000000
+      },
+      {
+        "id": "acc_cash",
+        "name": "Cash Wallet",
+        "type": "debit",
+        "bank_name": "Physical Cash",
+        "current_balance": 4500,
+        "created_at": 1715000000000
+      }
+    ],
+    "transactions": [
+      {
+        "id": "tx_1",
+        "account_id": "acc_savings",
+        "amount": -25000,
+        "category": "needs",
+        "sub_category": "House Rent",
+        "note": "May Rent",
+        "date": 1746007200000,
+        "is_joint_expense": false
+      },
+      {
+        "id": "tx_2",
+        "account_id": "acc_cc",
+        "amount": -1250,
+        "category": "wants",
+        "sub_category": "Dining",
+        "note": "Weekend Dinner",
+        "date": 1746784800000,
+        "is_joint_expense": false
+      },
+      {
+        "id": "tx_3",
+        "account_id": "acc_savings",
+        "amount": 95000,
+        "category": "savings",
+        "sub_category": "Salary",
+        "note": "Monthly Salary - April",
+        "date": 1746007200000,
+        "is_joint_expense": false
+      },
+      {
+        "id": "tx_4",
+        "account_id": "acc_cc",
+        "amount": -3500,
+        "category": "needs",
+        "sub_category": "Groceries",
+        "note": "BigBasket",
+        "date": 1746525600000,
+        "is_joint_expense": true
+      },
+      {
+        "id": "tx_5",
+        "account_id": "acc_savings",
+        "amount": -1200,
+        "category": "needs",
+        "sub_category": "Fuel",
+        "note": "Petrol Shell",
+        "date": 1746784800000,
+        "is_joint_expense": false
+      }
+    ],
+    "income_sources": [
+      {
+        "id": "inc_salary",
+        "name": "Software Engineer Salary",
+        "amount": 95000,
+        "frequency": "monthly",
+        "date": 1746007200000
+      }
+    ],
+    "loans": [
+      {
+        "id": "loan_car",
+        "type": "vehicle",
+        "lender": "HDFC Bank",
+        "principal": 850000,
+        "roi": 8.75,
+        "tenure_months": 60,
+        "start_date": 1715000000000,
+        "emi_day": 5,
+        "paid_emis": 12,
+        "account_id": "acc_savings"
+      }
+    ],
+    "joint_projects": [
+      {
+        "id": "proj_reno",
+        "name": "Home Kitchen Renovation",
+        "description": "Modular kitchen and tiling work",
+        "status": "active",
+        "created_at": 1744000000000
+      }
+    ],
+    "joint_members": [
+      {
+        "id": "mem_self",
+        "project_id": "proj_reno",
+        "name": "Suneesh",
+        "is_self": true,
+        "ownership_pct": 50
+      },
+      {
+        "id": "mem_spouse",
+        "project_id": "proj_reno",
+        "name": "Anju",
+        "is_self": false,
+        "ownership_pct": 50
+      }
+    ],
+    "joint_contributions": [
+      {
+        "id": "cont_1",
+        "project_id": "proj_reno",
+        "member_id": "mem_self",
+        "amount": 250000,
+        "description": "Initial Advance",
+        "date": 1744100000000,
+        "is_joint_emi": false
+      },
+      {
+        "id": "cont_2",
+        "project_id": "proj_reno",
+        "member_id": "mem_spouse",
+        "amount": 100000,
+        "description": "Cabinet Materials",
+        "date": 1745000000000,
+        "is_joint_emi": false
+      }
+    ],
+    "stocks": [
+      {
+        "id": "stk_reliance",
+        "symbol": "RELIANCE",
+        "name": "Reliance Industries",
+        "quantity": 50,
+        "avg_buy_price": 2450.50,
+        "current_price": 2980.15,
+        "last_updated": 1746784800000
+      },
+      {
+        "id": "stk_tcs",
+        "symbol": "TCS",
+        "name": "Tata Consultancy Services",
+        "quantity": 25,
+        "avg_buy_price": 3200,
+        "current_price": 3950.40,
+        "last_updated": 1746784800000
+      }
+    ],
+    "goals": [
+      {
+        "id": "goal_vacay",
+        "name": "Europe Trip 2026",
+        "target_amount": 500000,
+        "current_amount": 125000,
+        "target_date": 1778000000000,
+        "color": "#FF5733"
+      },
+      {
+        "id": "goal_emergency",
+        "name": "Emergency Fund",
+        "target_amount": 600000,
+        "current_amount": 450000,
+        "target_date": 1765000000000,
+        "color": "#33FF57"
+      }
+    ],
+    "chittys": [
+      {
+        "id": "chitty_ksfe",
+        "name": "KSFE 10K Multi-Division",
+        "monthly_installment": 10000,
+        "total_value": 500000,
+        "duration_months": 50,
+        "start_date": 1715000000000,
+        "auction_dividends": 12500
+      }
+    ],
+    "rds": [
+      {
+        "id": "rd_po",
+        "name": "Post Office RD",
+        "monthly_installment": 5000,
+        "roi": 6.7,
+        "duration_months": 60,
+        "start_date": 1740000000000,
+        "deposit_day": 10,
+        "paid_installments": 3,
+        "account_id": "acc_savings"
+      }
+    ],
+    "vehicles": [
+      {
+        "id": "veh_nexon",
+        "name": "Tata Nexon EV",
+        "reg_number": "KL-07-CD-1234",
+        "odometer": 12450,
+        "insurance_due": 1762000000000,
+        "loan_id": "loan_car",
+        "next_service_date": 1750000000000,
+        "next_service_km": 15000
+      },
+      {
+        "id": "veh_activa",
+        "name": "Honda Activa 6G",
+        "reg_number": "KL-07-CZ-5678",
+        "odometer": 4500,
+        "insurance_due": 1758000000000,
+        "loan_id": null,
+        "next_service_date": 1748000000000,
+        "next_service_km": 5000
+      }
+    ],
+    "service_logs": [
+      {
+        "id": "svc_1",
+        "vehicle_id": "veh_nexon",
+        "date": 1741000000000,
+        "odometer": 10000,
+        "service_name": "General Service",
+        "description": "First periodic service, wheel alignment",
+        "cost": 4500,
+        "is_recurring": true,
+        "recurring_by": "km",
+        "next_service_km": 20000,
+        "next_service_date": null
+      }
+    ],
+    "odometer_history": [
+      {
+        "id": "odo_1",
+        "vehicle_id": "veh_nexon",
+        "odometer": 12450,
+        "date": 1746784800000
+      },
+      {
+        "id": "odo_2",
+        "vehicle_id": "veh_activa",
+        "odometer": 4500,
+        "date": 1746784800000
+      }
+    ]
+  }
+}

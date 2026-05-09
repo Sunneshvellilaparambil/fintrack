@@ -7,7 +7,8 @@ import { database } from '../db';
 const TABLES = [
   'accounts', 'transactions', 'income_sources', 'loans',
   'joint_projects', 'joint_members', 'joint_contributions',
-  'stocks', 'goals', 'chittys', 'vehicles', 'service_logs',
+  'stocks', 'goals', 'chittys', 'rds', 'vehicles', 'service_logs',
+  'odometer_history',
 ];
 
 // ─── Request Android Storage Permission ───────────────────────────────────────
