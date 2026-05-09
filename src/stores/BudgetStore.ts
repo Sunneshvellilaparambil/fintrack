@@ -1,11 +1,13 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import { db } from '../db';
 import { Transaction, IncomeSource } from '../db/models';
-import { computeBudget, BudgetAllocation } from '../utils/finance';
+import { computeBudget, BudgetAllocation, calculateEMI } from '../utils/finance';
 import {
   CC_BILL_PAYMENT_SUBCATEGORY,
   ccBillTransferSubCategory,
+  emiSubCategory,
 } from '../utils/constants';
+import { getNextEmiDueDate } from '../utils/cardBilling';
 import type { RootStore } from './index';
 
 export class BudgetStore {
@@ -121,6 +123,8 @@ export class BudgetStore {
     if (!(amt > 0) || !Number.isFinite(amt)) {
       throw new Error('Bill payment amount must be a positive number.');
     }
+    // Hoist dt to method scope so we can reuse it for EMI bookkeeping entries
+    const dt = data.date ?? new Date();
 
     await db.transactions.database.write(async () => {
       const cc    = await db.accounts.find(data.creditCardAccountId) as any;
@@ -130,7 +134,6 @@ export class BudgetStore {
         throw new Error('Need a credit card and a non-credit payer account.');
       }
 
-      const dt       = data.date ?? new Date();
       const fromName = data.debitAccountName ?? debit.name ?? 'Bank';
 
       // 1. Credit-card side: positive amount = payment received
@@ -160,7 +163,78 @@ export class BudgetStore {
       // CC account: no balance mutation — outstanding is computed from transactions
     });
 
-    await this.load();
+    // ── 4. Auto-advance paidEmis for any CC-linked EMI loans whose instalment
+    //       falls in the current billing cycle and is covered by this payment.
+    //       This keeps the EMI screen in sync — user does NOT need to manually
+    //       "Mark Paid" on the EMI tab after paying the credit card bill.
+    try {
+      const ccRow = await db.accounts.find(data.creditCardAccountId) as any;
+      const billDate: number | null = ccRow.billDate ?? null;
+      if (billDate) {
+        // Compute current cycle window (same logic as AccountStore.getCycleStart/getNextBillDate)
+        const today = new Date();
+        const cycleStart = today.getDate() >= billDate
+          ? new Date(today.getFullYear(), today.getMonth(), billDate)
+          : new Date(today.getFullYear(), today.getMonth() - 1, billDate);
+        const cycleEnd = today.getDate() < billDate
+          ? new Date(today.getFullYear(), today.getMonth(), billDate)
+          : new Date(today.getFullYear(), today.getMonth() + 1, billDate);
+
+        const cycleStartMs = cycleStart.getTime();
+        const cycleEndMs   = cycleEnd.getTime();
+
+        // Fetch all loans linked to this credit card
+        const linkedLoans = this.root.loans.loans.filter(
+          l => l.accountId === data.creditCardAccountId
+        );
+
+        for (const loan of linkedLoans) {
+          const remaining = loan.tenureMonths - loan.paidEmis;
+          if (remaining <= 0) continue; // fully paid
+
+          const loanForBilling = {
+            principal:    loan.principal,
+            roi:          loan.roi,
+            tenureMonths: loan.tenureMonths,
+            paidEmis:     loan.paidEmis,
+            startDate:    loan.startDate,
+            emiDay:       loan.emiDay,
+          };
+
+          const nextDueMs = getNextEmiDueDate(loanForBilling).getTime();
+          const isInThisCycle = nextDueMs >= cycleStartMs && nextDueMs < cycleEndMs;
+
+          if (!isInThisCycle) continue; // this loan's EMI is not due this cycle
+
+          const emiAmount = calculateEMI(loan.principal, loan.roi, loan.tenureMonths);
+          const newPaidEmis = loan.paidEmis + 1;
+
+          // Advance paidEmis in DB
+          await db.loans.database.write(async () => {
+            const loanRow = await db.loans.find(loan.id) as any;
+            await loanRow.update((l: any) => { l.paidEmis = newPaidEmis; });
+          });
+
+          // Log a bookkeeping EMI transaction on the CC account so the
+          // EMI row is visible in transaction history (isEmiSubCategory = true,
+          // so cardBilling ignores it from nonEmiCycleSpend).
+          await db.transactions.database.write(async () => {
+            await db.transactions.create((t: any) => {
+              t.account.id     = data.creditCardAccountId;
+              t.amount         = -Math.abs(emiAmount);
+              t.category       = 'needs';
+              t.subCategory    = emiSubCategory(loan.lender);
+              t.note           = `EMI ${newPaidEmis} of ${loan.tenureMonths} (via CC bill)`;
+              t.date           = dt;
+              t.isJointExpense = false;
+            });
+          });
+        }
+      }
+    } catch { /* non-critical: EMI auto-advance failed silently */ }
+
+    // Reload both stores so MobX recomputes everything
+    await Promise.all([this.load(), this.root.loans.load()]);
   }
 
   async deleteTransaction(id: string) {

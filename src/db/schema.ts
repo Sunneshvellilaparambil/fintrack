@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const schema = appSchema({
-  version: 5,
+  version: 6,
   tables: [
     // ── Accounts & Cards ──────────────────────────────────────────────────
     tableSchema({
@@ -130,6 +130,21 @@ export const schema = appSchema({
         { name: 'duration_months', type: 'number' },
         { name: 'start_date', type: 'number' },
         { name: 'auction_dividends', type: 'number' },
+      ],
+    }),
+
+    // ── Recurring Deposits (RD) ───────────────────────────────────────────
+    tableSchema({
+      name: 'rds',
+      columns: [
+        { name: 'name', type: 'string' },
+        { name: 'monthly_installment', type: 'number' },
+        { name: 'roi', type: 'number' },
+        { name: 'duration_months', type: 'number' },
+        { name: 'start_date', type: 'number' },
+        { name: 'deposit_day', type: 'number' },
+        { name: 'paid_installments', type: 'number' },
+        { name: 'account_id', type: 'string', isOptional: true },
       ],
     }),
 

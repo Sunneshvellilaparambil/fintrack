@@ -129,6 +129,21 @@ export class Chitty extends Model {
   @field('auction_dividends') auctionDividends!: number;
 }
 
+// ─── Recurring Deposit (RD) ───────────────────────────────────────────────────
+export class RD extends Model {
+  static table = 'rds';
+  @text('name') name!: string;
+  @field('monthly_installment') monthlyInstallment!: number;
+  @field('roi') roi!: number;
+  @field('duration_months') durationMonths!: number;
+  @date('start_date') startDate!: Date;
+  @field('deposit_day') depositDay!: number;
+  @field('paid_installments') paidInstallments!: number;
+  
+  @text('account_id') accountId!: string | null;
+  @relation('accounts', 'account_id') account!: Relation<Account>;
+}
+
 // ─── Vehicle ──────────────────────────────────────────────────────────────────
 export class Vehicle extends Model {
   static table = 'vehicles';

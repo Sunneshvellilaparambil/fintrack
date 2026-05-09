@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Modal, TextInput, Alert, StatusBar, Switch,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { observer } from 'mobx-react-lite';
 import { useStores } from '../../stores';
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '../../theme';
@@ -42,6 +43,51 @@ const EMIScreen: React.FC = observer(() => {
     memberId: '', amount: '', description: '', isJointEmi: false, accountId: '',
   });
   const [editingLoanId, setEditingId] = useState<string | null>(null);
+
+  // ── Pay EMI modal state ────────────────────────────────────────────────────
+  const [payEmiLoan, setPayEmiLoan] = useState<(typeof loans.loans)[0] | null>(null);
+  const [payEmiDebitId, setPayEmiDebitId] = useState<string>('');
+  const [payEmiSubmitting, setPayEmiSubmitting] = useState(false);
+
+  const openPayEmi = (loan: (typeof loans.loans)[0]) => {
+    // Pre-select: if loan is linked to a debit account use it, else first debit
+    const linked = loan.accountId && !creditCardIds.has(loan.accountId) ? loan.accountId : '';
+    setPayEmiDebitId(linked || accounts.debitAccounts[0]?.id || '');
+    setPayEmiLoan(loan);
+    setPayEmiSubmitting(false);
+  };
+
+  const handlePayEmi = async () => {
+    if (!payEmiLoan) return;
+    const emi = calculateEMI(payEmiLoan.principal, payEmiLoan.roi, payEmiLoan.tenureMonths);
+    const debit = accounts.debitAccounts.find(a => a.id === payEmiDebitId);
+    if (!debit) {
+      Alert.alert('Select account', 'Please choose a debit account to pay from.');
+      return;
+    }
+    if (debit.currentBalance + 1e-6 < emi) {
+      Alert.alert(
+        'Insufficient balance',
+        `${debit.name} has only ₹${formatINR(debit.currentBalance)}. Not enough for ₹${formatINR(emi)} EMI.`,
+      );
+      return;
+    }
+    setPayEmiSubmitting(true);
+    try {
+      // Temporarily override accountId so markEMIPaid deducts from chosen debit
+      const originalAccountId = payEmiLoan.accountId;
+      if (payEmiDebitId && payEmiDebitId !== originalAccountId) {
+        await loans.updateLoan(payEmiLoan.id, { accountId: payEmiDebitId });
+      }
+      await loans.markEMIPaid(payEmiLoan.id);
+      setPayEmiLoan(null);
+      Alert.alert('✅ EMI Paid', `₹${formatINR(emi)} deducted from ${debit.name}.`);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Could not record EMI payment.');
+    } finally {
+      setPayEmiSubmitting(false);
+    }
+  };
 
   const resetForm = () => {
     setEditingId(null);
@@ -140,15 +186,13 @@ const EMIScreen: React.FC = observer(() => {
 
   const creditCardIds = new Set(accounts.creditCards.map(c => c.id));
   const paymentOptions = [
-    ...accounts.debitAccounts.map(a => ({ id: a.id, label: a.name ?? a.bankName, sub: a.bankName, emoji: 'business-outline', isCredit: false })),
-    ...accounts.creditCards.map(c => ({ id: c.id, label: `${c.bankName} ···${c.cardLast2}`, sub: 'Pay later (Credit)', emoji: 'card-outline', isCredit: true })),
+    ...accounts.debitAccounts.map(a => ({ id: a.id, label: a.name ?? a.bankName, sub: a.bankName, emoji: 'business-outline', isCredit: false, balance: a.currentBalance })),
+    ...accounts.creditCards.map(c => ({ id: c.id, label: `${c.bankName} ···${c.cardLast2}`, sub: 'Pay later (Credit)', emoji: 'card-outline', isCredit: true, balance: 0 })),
   ];
 
   return (
-    <>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.bg} />
+    <View style={styles.container}>
       <ScrollView
-        style={styles.container}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
@@ -295,24 +339,10 @@ const EMIScreen: React.FC = observer(() => {
                     disabled={remaining === 0}
                     onPress={() => {
                       if (loan.paidEmis >= loan.tenureMonths) {
-                        Alert.alert('Payment Restricted', 'All EMIs for this loan have already been paid. Please check your records.');
+                        Alert.alert('Payment Restricted', 'All EMIs for this loan have already been paid.');
                         return;
                       }
-
-                      const isCC = loan.accountId ? creditCardIds.has(loan.accountId) : false;
-                      const payOpt = loan.accountId ? paymentOptions.find(p => p.id === loan.accountId) : null;
-                      const msg = isCC
-                        ? `Mark ₹${formatINR(emi)} as paid for ${formattedNextDate}?\n\nRemaining EMIs: ${remaining}\nRemaining Amount: ₹${formatINR(remainingAmount, true)}\n\n💳 EMI will also be added to ${payOpt?.label ?? 'your card'}'s bill cycle.`
-                        : `Mark ₹${formatINR(emi)} as paid for ${formattedNextDate}?\n\nRemaining EMIs: ${remaining}\nRemaining Amount: ₹${formatINR(remainingAmount, true)}`;
-                        Alert.alert('Mark EMI Paid', msg, [
-                          { text: 'Cancel', style: 'cancel' },
-                          { text: 'Confirm', onPress: async () => {
-                              await loans.markEMIPaid(loan.id, creditCardIds);
-                              if (isCC && payOpt?.id) {
-                                await accounts.recalculateCardBalance(payOpt.id);
-                              }
-                          }},
-                        ]);
+                      openPayEmi(loan);
                     }}
                   >
                     <Text style={[styles.payBtnText, remaining === 0 && { color: Colors.textMuted }]}>
@@ -324,6 +354,88 @@ const EMIScreen: React.FC = observer(() => {
             );
           })
         )}
+
+        {/* ── Pay EMI Modal ──────────────────────────────── */}
+        <Modal visible={!!payEmiLoan} animationType="slide" presentationStyle="pageSheet">
+          <View style={styles.modal}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Pay EMI</Text>
+              <TouchableOpacity
+                style={styles.modalCloseBtn}
+                onPress={() => !payEmiSubmitting && setPayEmiLoan(null)}
+              >
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {payEmiLoan && (() => {
+              const emi = calculateEMI(payEmiLoan.principal, payEmiLoan.roi, payEmiLoan.tenureMonths);
+              const remaining = payEmiLoan.tenureMonths - payEmiLoan.paidEmis;
+              return (
+                <ScrollView style={{ padding: Spacing.base }} keyboardShouldPersistTaps="handled">
+                  {/* Summary card */}
+                  <View style={styles.payEmiSummary}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.payEmiLender}>{payEmiLoan.lender}</Text>
+                      <Text style={styles.payEmiSub}>
+                        EMI {payEmiLoan.paidEmis + 1} of {payEmiLoan.tenureMonths} · {remaining - 1} left after this
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={styles.payEmiAmount}>₹{formatINR(emi)}</Text>
+                      <Text style={styles.payEmiAmtLabel}>THIS MONTH</Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.inputLabel}>Deduct from (Debit Account)</Text>
+                  {accounts.debitAccounts.length === 0 ? (
+                    <Text style={{ color: Colors.warning, fontSize: FontSize.sm, marginTop: 4 }}>
+                      Add a debit account under Accounts first.
+                    </Text>
+                  ) : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
+                      {accounts.debitAccounts.map(acc => {
+                        const isSelected = payEmiDebitId === acc.id;
+                        const insufficient = acc.currentBalance < emi;
+                        return (
+                          <TouchableOpacity
+                            key={acc.id}
+                            style={[
+                              styles.paymentChip,
+                              isSelected && styles.paymentChipActive,
+                              insufficient && { opacity: 0.5 },
+                            ]}
+                            onPress={() => setPayEmiDebitId(acc.id)}
+                          >
+                            <Text style={styles.paymentChipEmoji}>🏦</Text>
+                            <View>
+                              <Text style={[styles.paymentChipLabel, isSelected && styles.paymentChipLabelActive]}>
+                                {acc.name ?? acc.bankName}
+                              </Text>
+                              <Text style={[styles.paymentChipSub, insufficient && { color: Colors.danger }]}>
+                                ₹{formatINR(acc.currentBalance)}{insufficient ? ' – Low' : ''}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
+
+                  <TouchableOpacity
+                    style={[styles.saveBtn, (payEmiSubmitting || accounts.debitAccounts.length === 0) && { opacity: 0.5 }]}
+                    disabled={payEmiSubmitting || accounts.debitAccounts.length === 0}
+                    onPress={handlePayEmi}
+                    activeOpacity={0.8}
+                  >
+                    {payEmiSubmitting
+                      ? <Text style={styles.saveBtnText}>Processing…</Text>
+                      : <Text style={styles.saveBtnText}>✓  Confirm Payment  ₹{formatINR(emi)}</Text>}
+                  </TouchableOpacity>
+                </ScrollView>
+              );
+            })()}
+          </View>
+        </Modal>
 
         {/* ── Add Loan Modal ─────────────────────────────── */}
         <Modal visible={showAddModal} animationType="slide" presentationStyle="pageSheet">
@@ -489,7 +601,7 @@ const EMIScreen: React.FC = observer(() => {
 
                     return (
                       <View style={styles.tenureInfoCard}>
-                        <Text style={styles.tenureInfoTitle}>calendar-outline Tenure Details</Text>
+                        <Text style={styles.tenureInfoTitle}><Icon name="calendar-outline" size={14} /> Tenure Details</Text>
                         <View style={styles.tenureInfoRow}>
                           <View style={styles.tenureInfoItem}>
                             <Text style={styles.tenureInfoLabel}>START DATE</Text>
@@ -565,7 +677,7 @@ const EMIScreen: React.FC = observer(() => {
               {/* ── Payment Method ──────────────────────────── */}
               {paymentOptions.length > 0 && (
                 <View style={{ marginTop: Spacing.base }}>
-                  <Text style={styles.inputLabel}>card-outline EMI Payment Method</Text>
+                  <Text style={styles.inputLabel}><Icon name="card-outline" size={14} /> EMI Payment Method</Text>
                   <Text style={styles.paymentHint}>Which account/card will this EMI be debited from?</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
                     {/* None option */}
@@ -617,7 +729,7 @@ const EMIScreen: React.FC = observer(() => {
                     return (
                       <View style={styles.ccEmiNote}>
                         <Text style={styles.ccEmiNoteText}>
-                          card-outline Each time you mark this EMI paid, ₹{form.principal && form.roi && form.tenureMonths
+                          <Icon name="card-outline" size={12} /> Each time you mark this EMI paid, ₹{form.principal && form.roi && form.tenureMonths
                             ? formatINR(calculateEMI(parseFloat(form.principal), parseFloat(form.roi || '0'), parseInt(form.tenureMonths)))
                             : '...'} will be added to {opt?.label ?? 'the card'}'s billing cycle
                           {billDay ? ` (bill closes on ${billDay}th)` : ''}.
@@ -628,12 +740,7 @@ const EMIScreen: React.FC = observer(() => {
                 </View>
               )}
 
-              <TouchableOpacity style={styles.saveBtn} onPress={async () => {
-                await handleSave();
-                if (selectedAccountId && creditCardIds.has(selectedAccountId)) {
-                  await accounts.recalculateCardBalance(selectedAccountId);
-                }
-              }} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.8}>
                 <Text style={styles.saveBtnText}>{editingLoanId ? 'Update Loan' : 'Add Loan'}</Text>
               </TouchableOpacity>
             </ScrollView>
@@ -732,7 +839,7 @@ const EMIScreen: React.FC = observer(() => {
 
         <View style={{ height: Spacing.xxl }} />
       </ScrollView>
-    </>
+    </View>
   );
 });
 
@@ -1079,5 +1186,40 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
     textAlign: 'center',
+  },
+
+  // Pay EMI modal
+  payEmiSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.bgCard,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: `${Colors.success}30`,
+    padding: Spacing.base,
+    marginBottom: Spacing.sm,
+  },
+  payEmiLender: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.bold,
+    color: Colors.textPrimary,
+  },
+  payEmiSub: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  payEmiAmount: {
+    fontSize: FontSize.xxl,
+    fontWeight: FontWeight.black,
+    color: Colors.success,
+    letterSpacing: -1,
+  },
+  payEmiAmtLabel: {
+    fontSize: 9,
+    color: Colors.textMuted,
+    fontWeight: FontWeight.bold,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
 });

@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, StatusBar,
   TextInput, Alert, ActivityIndicator,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { observer } from 'mobx-react-lite';
 import { useStores } from '../../stores';
 import { Colors, FontSize, FontWeight, Spacing, Radius } from '../../theme';
@@ -83,10 +84,8 @@ const BillsScreen: React.FC = observer(() => {
   }, [hasCheckedOverdue, overdueBills.length]);
 
   return (
-    <>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.bg} />
+    <View style={styles.container}>
       <ScrollView
-        style={styles.container}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
@@ -190,7 +189,7 @@ const BillsScreen: React.FC = observer(() => {
       <Modal visible={!!payModal} animationType="slide" presentationStyle="pageSheet">
         <View style={styles.paySheet}>
           <View style={styles.paySheetHeader}>
-            <Text style={styles.paySheetTitle}>Pay credit card bill</Text>
+            <Text style={styles.paySheetTitle}>Pay Credit Card Bill</Text>
             <TouchableOpacity
               style={styles.paySheetClose}
               onPress={() => !paySubmitting && setPayModal(null)}
@@ -201,12 +200,37 @@ const BillsScreen: React.FC = observer(() => {
 
           {payModal && (
             <ScrollView style={styles.paySheetBody} keyboardShouldPersistTaps="handled">
-              <Text style={styles.payHint}>
-                Transfer from your bank account to settle{' '}
-                {payModal.card.bankName} ···{payModal.card.cardLast2}.
-              </Text>
 
-              <Text style={styles.payLabel}>Amount due (edit for partial pay)</Text>
+              {/* ── Bill summary card ── */}
+              <View style={styles.billSummaryCard}>
+                <View style={styles.billSummaryTop}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.billSummaryCardName}>
+                      <Icon name="card" size={16} color={Colors.textPrimary} /> {payModal.card.bankName} ···{payModal.card.cardLast2}
+                    </Text>
+                    <Text style={styles.billSummaryCycle}>
+                      Due:{' '}
+                      {payModal.nextDue.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.billSummaryDueAmt}>₹{formatINR(payModal.cycleStatementDue)}</Text>
+                    <Text style={styles.billSummaryDueLabel}>TOTAL DUE</Text>
+                  </View>
+                </View>
+                {(payModal.nonEmiCycleSpend > 0 || payModal.monthlyEmiDue > 0) && (
+                  <View style={styles.billSummaryBreakdown}>
+                    <Text style={styles.billSummaryBreakdownTxt}>
+                      Spends: ₹{formatINR(payModal.nonEmiCycleSpend)}
+                      {'   ·   '}
+                      EMIs: ₹{formatINR(payModal.monthlyEmiDue)}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {/* ── Amount input ── */}
+              <Text style={styles.payLabel}>Amount (edit for partial payment)</Text>
               <TextInput
                 style={styles.payInput}
                 value={payAmountStr}
@@ -215,34 +239,70 @@ const BillsScreen: React.FC = observer(() => {
                 placeholder="0"
                 placeholderTextColor={Colors.textMuted}
               />
+              {(() => {
+                const amt = parseFloat(String(payAmountStr).replace(/,/g, '').trim());
+                if (!isNaN(amt) && payModal.cycleStatementDue > 0 && amt < payModal.cycleStatementDue - 1) {
+                  return (
+                    <Text style={styles.partialNote}>
+                      ⚠ Partial payment — ₹{formatINR(payModal.cycleStatementDue - amt)} will remain unpaid
+                    </Text>
+                  );
+                }
+                return null;
+              })()}
 
-              <Text style={styles.payLabel}>Pay from</Text>
+              {/* ── Debit account chips ── */}
+              <Text style={styles.payLabel}>Deduct from (Bank / Debit Account)</Text>
               {accounts.debitAccounts.length === 0 ? (
                 <Text style={styles.payNoDebit}>Add a debit account under Accounts to pay bills.</Text>
               ) : (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.payChips}>
-                  {accounts.debitAccounts.map(a => (
-                    <TouchableOpacity
-                      key={a.id}
-                      style={[styles.payChip, payFromId === a.id && styles.payChipOn]}
-                      onPress={() => setPayFromId(a.id)}
-                    >
-                      <Text style={[styles.payChipLabel, payFromId === a.id && styles.payChipLabelOn]}>{a.name}</Text>
-                      <Text style={styles.payChipBal}>₹{formatINR(a.currentBalance)}</Text>
-                    </TouchableOpacity>
-                  ))}
+                  {accounts.debitAccounts.map(a => {
+                    const amt = parseFloat(String(payAmountStr).replace(/,/g, '').trim()) || 0;
+                    const insufficient = amt > 0 && a.currentBalance < amt;
+                    const isSelected = payFromId === a.id;
+                    return (
+                      <TouchableOpacity
+                        key={a.id}
+                        style={[
+                          styles.payChip,
+                          isSelected && styles.payChipOn,
+                          insufficient && { opacity: 0.5 },
+                        ]}
+                        onPress={() => setPayFromId(a.id)}
+                      >
+                        <Text style={styles.payChipEmoji}>🏦</Text>
+                        <View>
+                          <Text style={[styles.payChipLabel, isSelected && styles.payChipLabelOn]}>
+                            {a.name ?? a.bankName}
+                          </Text>
+                          <Text style={[styles.payChipBal, insufficient && { color: Colors.danger }]}>
+                            ₹{formatINR(a.currentBalance)}{insufficient ? ' – Low' : ''}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </ScrollView>
               )}
 
+              {/* ── Confirm button ── */}
               <TouchableOpacity
-                style={[styles.payConfirm, (paySubmitting || accounts.debitAccounts.length === 0) && { opacity: 0.5 }]}
+                style={[
+                  styles.payConfirm,
+                  (paySubmitting || accounts.debitAccounts.length === 0) && { opacity: 0.5 },
+                ]}
                 disabled={paySubmitting || accounts.debitAccounts.length === 0}
                 onPress={handleSubmitBillPayment}
               >
                 {paySubmitting
                   ? <ActivityIndicator color={Colors.textPrimary} />
-                  : <Text style={styles.payConfirmTxt}>Record payment</Text>}
+                  : <Text style={styles.payConfirmTxt}>
+                      ✓  Pay ₹{formatINR(parseFloat(String(payAmountStr).replace(/,/g, '').trim()) || 0)}
+                    </Text>
+                }
               </TouchableOpacity>
+
             </ScrollView>
           )}
         </View>
@@ -282,7 +342,7 @@ const BillsScreen: React.FC = observer(() => {
           </View>
         </View>
       </Modal>
-    </>
+    </View>
   );
 });
 
@@ -327,7 +387,65 @@ const styles = StyleSheet.create({
   payChipOn:        { borderColor: Colors.info, backgroundColor: `${Colors.info}18` },
   payChipLabel:     { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textSecondary },
   payChipLabelOn:   { color: Colors.textPrimary },
-  payChipBal:       { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 4 },
+  payChipBal:       { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
+  payChipEmoji:     { fontSize: 18, marginRight: 6 },
   payConfirm:       { backgroundColor: Colors.success, borderRadius: Radius.md, padding: Spacing.base, alignItems: 'center', marginTop: Spacing.xl, marginBottom: Spacing.xxl },
   payConfirmTxt:    { color: Colors.textPrimary, fontWeight: FontWeight.black, fontSize: FontSize.base },
+
+  // Bill summary card inside pay modal
+  billSummaryCard: {
+    backgroundColor: Colors.bgElevated,
+    borderRadius: Radius.md,
+    padding: Spacing.base,
+    borderWidth: 1,
+    borderColor: `${Colors.warning}30`,
+    marginBottom: Spacing.sm,
+  },
+  billSummaryTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  billSummaryCardName: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.bold,
+    color: Colors.textPrimary,
+  },
+  billSummaryCycle: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    marginTop: 3,
+  },
+  billSummaryDueAmt: {
+    fontSize: FontSize.xxl,
+    fontWeight: FontWeight.black,
+    color: Colors.warning,
+    letterSpacing: -1,
+  },
+  billSummaryDueLabel: {
+    fontSize: 9,
+    fontWeight: FontWeight.bold,
+    color: Colors.textMuted,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginTop: 2,
+  },
+  billSummaryBreakdown: {
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  billSummaryBreakdownTxt: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+
+  // Partial payment warning
+  partialNote: {
+    fontSize: FontSize.xs,
+    color: Colors.warning,
+    marginTop: 6,
+    fontWeight: FontWeight.medium,
+  },
 });

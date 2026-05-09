@@ -5,7 +5,7 @@ import migrations from './migrations';
 import {
   Account, Transaction, IncomeSource, Loan,
   JointProject, JointMember, JointContribution,
-  Stock, Goal, Chitty, Vehicle, ServiceLog, OdometerHistory,
+  Stock, Goal, Chitty, RD, Vehicle, ServiceLog, OdometerHistory,
 } from './models';
 
 export let database: Database;
@@ -28,7 +28,7 @@ export function initDB(profileId: string) {
     modelClasses: [
       Account, Transaction, IncomeSource, Loan,
       JointProject, JointMember, JointContribution,
-      Stock, Goal, Chitty, Vehicle, ServiceLog, OdometerHistory,
+      Stock, Goal, Chitty, RD, Vehicle, ServiceLog, OdometerHistory,
     ],
   });
 
@@ -44,6 +44,7 @@ export function initDB(profileId: string) {
     stocks: database.collections.get<Stock>('stocks'),
     goals: database.collections.get<Goal>('goals'),
     chittys: database.collections.get<Chitty>('chittys'),
+    rds: database.collections.get<RD>('rds'),
     vehicles: database.collections.get<Vehicle>('vehicles'),
     serviceLogs: database.collections.get<ServiceLog>('service_logs'),
     odometerHistory: database.collections.get<OdometerHistory>('odometer_history'),

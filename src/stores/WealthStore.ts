@@ -1,13 +1,14 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import { db } from '../db';
-import { Stock, Goal, Chitty } from '../db/models';
-import { round2 } from '../utils/finance';
+import { Stock, Goal, Chitty, RD } from '../db/models';
+import { round2, calculateRDmaturity } from '../utils/finance';
 import type { RootStore } from './index';
 
 export class WealthStore {
   stocks: Stock[]  = [];
   goals: Goal[]    = [];
   chittys: Chitty[] = [];
+  rds: RD[] = [];
   loading = false;
 
   private root: RootStore;
@@ -19,15 +20,17 @@ export class WealthStore {
 
   async load() {
     runInAction(() => { this.loading = true; });
-    const [stocks, goals, chittys] = await Promise.all([
+    const [stocks, goals, chittys, rds] = await Promise.all([
       db.stocks.query().fetch(),
       db.goals.query().fetch(),
       db.chittys.query().fetch(),
+      db.rds.query().fetch(),
     ]);
     runInAction(() => {
       this.stocks  = stocks;
       this.goals   = goals;
       this.chittys = chittys;
+      this.rds = rds;
       this.loading = false;
     });
   }
@@ -166,6 +169,67 @@ export class WealthStore {
 
   async deleteChitty(id: string) {
     await db.chittys.database.write(async () => { (await db.chittys.find(id)).destroyPermanently(); });
+    await this.load();
+  }
+
+  // ── RDs ──────────────────────────────────────────────────────────────────────
+  async addRD(data: { name: string; monthlyInstallment: number; durationMonths: number; roi: number; startDate: Date; depositDay: number; accountId?: string }) {
+    await db.rds.database.write(async () => {
+      await db.rds.create((r: any) => {
+        r.name = data.name;
+        r.monthlyInstallment = data.monthlyInstallment;
+        r.durationMonths = data.durationMonths;
+        r.roi = data.roi;
+        r.startDate = data.startDate;
+        r.depositDay = data.depositDay;
+        r.paidInstallments = 0;
+        r.accountId = data.accountId || null;
+      });
+    });
+    await this.load();
+  }
+
+  async updateRD(id: string, data: Partial<{ name: string; monthlyInstallment: number; durationMonths: number; roi: number; startDate: Date; depositDay: number; paidInstallments: number; accountId: string }>) {
+    await db.rds.database.write(async () => {
+      const r = await db.rds.find(id) as any;
+      await r.update((_r: any) => {
+        if (data.name !== undefined) _r.name = data.name;
+        if (data.monthlyInstallment !== undefined) _r.monthlyInstallment = data.monthlyInstallment;
+        if (data.durationMonths !== undefined) _r.durationMonths = data.durationMonths;
+        if (data.roi !== undefined) _r.roi = data.roi;
+        if (data.startDate !== undefined) _r.startDate = data.startDate;
+        if (data.depositDay !== undefined) _r.depositDay = data.depositDay;
+        if (data.paidInstallments !== undefined) _r.paidInstallments = data.paidInstallments;
+        if (data.accountId !== undefined) _r.accountId = data.accountId;
+      });
+    });
+    await this.load();
+  }
+
+  async deleteRD(id: string) {
+    await db.rds.database.write(async () => { (await db.rds.find(id)).destroyPermanently(); });
+    await this.load();
+  }
+
+  async payRDInstallment(rdId: string, accountId: string, amount: number) {
+    await db.rds.database.write(async () => {
+      const r = await db.rds.find(rdId) as any;
+      if (r.paidInstallments >= r.durationMonths) return; // already completed
+      await r.update((_r: any) => {
+        _r.paidInstallments += 1;
+      });
+    });
+    
+    // Also deduct the amount from budget store / transactions
+    await this.root.budget.addTransaction({
+      accountId,
+      amount: -amount,
+      category: 'savings',
+      subCategory: 'RD Installment',
+      date: new Date(),
+      note: 'Auto-recorded RD installment',
+    });
+    
     await this.load();
   }
 }

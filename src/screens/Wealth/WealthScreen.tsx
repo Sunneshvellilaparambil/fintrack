@@ -11,7 +11,7 @@ import { formatINR, sipFutureValue, inflationAdjustedValue, debtToIncomeRatio, a
 
 const WealthScreen: React.FC = observer(() => {
   const { wealth, loans, budget, accounts } = useStores();
-  const [activeTab, setActiveTab] = useState<'portfolio' | 'goals' | 'chitty' | 'retirement' | 'planner'>('portfolio');
+  const [activeTab, setActiveTab] = useState<'portfolio' | 'goals' | 'chitty' | 'rd' | 'retirement' | 'planner'>('portfolio');
   const [showModal, setShowModal] = useState<string | null>(null);
   const [stockForm, setStockForm] = useState({ symbol: '', name: '', quantity: '', avgBuyPrice: '', currentPrice: '' });
   const [goalForm, setGoalForm] = useState({ name: '', targetAmount: '', targetDate: '', color: '#6C63FF' });
@@ -22,6 +22,8 @@ const WealthScreen: React.FC = observer(() => {
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingStockId, setEditingStockId] = useState<string | null>(null);
   const [editingChittyId, setEditingChittyId] = useState<string | null>(null);
+  const [editingRDId, setEditingRDId] = useState<string | null>(null);
+  const [rdForm, setRDForm] = useState({ name: '', monthlyInstallment: '', durationMonths: '', roi: '', startDate: new Date().toISOString().split('T')[0], depositDay: '1', accountId: '' });
 
   const resetGoalForm = () => {
     setEditingGoalId(null);
@@ -34,6 +36,10 @@ const WealthScreen: React.FC = observer(() => {
   const resetChittyForm = () => {
     setEditingChittyId(null);
     setChittyForm({ name: '', monthlyInstallment: '', totalValue: '', durationMonths: '', startDate: new Date().toISOString().split('T')[0] });
+  };
+  const resetRDForm = () => {
+    setEditingRDId(null);
+    setRDForm({ name: '', monthlyInstallment: '', durationMonths: '', roi: '', startDate: new Date().toISOString().split('T')[0], depositDay: '1', accountId: '' });
   };
 
   const startEditGoal = (g: any) => {
@@ -69,6 +75,20 @@ const WealthScreen: React.FC = observer(() => {
       startDate: c.startDate ? new Date(c.startDate).toISOString().split('T')[0] : '',
     });
     setShowModal('chitty_add');
+  };
+
+  const startEditRD = (r: any) => {
+    setEditingRDId(r.id);
+    setRDForm({
+      name: r.name,
+      monthlyInstallment: String(r.monthlyInstallment),
+      durationMonths: String(r.durationMonths),
+      roi: String(r.roi),
+      startDate: r.startDate ? new Date(r.startDate).toISOString().split('T')[0] : '',
+      depositDay: String(r.depositDay),
+      accountId: r.accountId || '',
+    });
+    setShowModal('rd_add');
   };
 
   const handleSaveStock = async () => {
@@ -131,6 +151,28 @@ const WealthScreen: React.FC = observer(() => {
     resetChittyForm();
   };
 
+  const handleSaveRD = async () => {
+    if (!rdForm.name || !rdForm.monthlyInstallment || !rdForm.durationMonths) {
+      Alert.alert('Error', 'Name, installment and duration required'); return;
+    }
+    const data = {
+      name: rdForm.name,
+      monthlyInstallment: parseFloat(rdForm.monthlyInstallment),
+      durationMonths: parseInt(rdForm.durationMonths),
+      roi: parseFloat(rdForm.roi) || 0,
+      startDate: new Date(rdForm.startDate),
+      depositDay: parseInt(rdForm.depositDay) || 1,
+      accountId: rdForm.accountId || undefined,
+    };
+    if (editingRDId) {
+      await wealth.updateRD(editingRDId, data);
+    } else {
+      await wealth.addRD(data);
+    }
+    setShowModal(null);
+    resetRDForm();
+  };
+
   // Retirement planner state
   const [retForm, setRetForm] = useState({ currentAge: '30', retireAge: '60', monthlyContrib: '', expectedReturn: '12', inflation: '6' });
 
@@ -140,6 +182,7 @@ const WealthScreen: React.FC = observer(() => {
     { key: 'portfolio', label: '📈 Portfolio' },
     { key: 'goals', label: 'flag-outline Goals' },
     { key: 'chitty', label: 'wallet-outline Chitty' },
+    { key: 'rd', label: '🏦 RD' },
     { key: 'retirement', label: '🛡 Retirement' },
     { key: 'planner', label: '🏡 Property' },
   ] as const;
@@ -383,6 +426,67 @@ const WealthScreen: React.FC = observer(() => {
                           ₹{formatINR(Math.abs(netCost))}
                         </Text>
                       </View>
+                    </TouchableOpacity>
+                  </Card>
+                );
+              })
+            )}
+          </>
+        )}
+
+        {/* ── RD (Recurring Deposit) ─────────────────────────────────────── */}
+        {activeTab === 'rd' && (
+          <>
+            <SectionHeader title="Recurring Deposits" action={
+              <TouchableOpacity onPress={() => setShowModal('rd')}>
+                <Text style={styles.addBtn}>+ Add RD</Text>
+              </TouchableOpacity>
+            } />
+            {wealth.rds.length === 0 ? (
+              <EmptyState icon="business-outline" title="No RDs" description="Track your bank or post office recurring deposits" />
+            ) : (
+              wealth.rds.map(rd => {
+                const totalInvested = rd.paidInstallments * rd.monthlyInstallment;
+                const progressPct = (rd.paidInstallments / rd.durationMonths) * 100;
+                return (
+                  <Card key={rd.id} style={styles.chittyCard}>
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onLongPress={() => {
+                        Alert.alert('Manage RD', rd.name, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Edit Info', onPress: () => startEditRD(rd) },
+                          { text: 'Delete', style: 'destructive', onPress: () => wealth.deleteRD(rd.id) },
+                        ]);
+                      }}
+                    >
+                      <View style={styles.goalRow}>
+                        <View style={styles.goalLeft}>
+                          <Text style={styles.goalName}>{rd.name}</Text>
+                          <Text style={styles.goalDays}>
+                            {rd.durationMonths - rd.paidInstallments} months remaining
+                          </Text>
+                        </View>
+                        <View style={styles.goalRight}>
+                          <Text style={[styles.goalPct, { color: Colors.primary }]}>{rd.roi}% ROI</Text>
+                        </View>
+                      </View>
+                      <ProgressBar pct={progressPct} color={Colors.primary} height={10} style={{ marginVertical: Spacing.sm }} />
+                      <View style={styles.chittyGrid}>
+                        <View style={styles.chittyItem}>
+                          <Text style={styles.chittyItemLabel}>Monthly</Text>
+                          <Text style={styles.chittyItemValue}>₹{formatINR(rd.monthlyInstallment, true)}</Text>
+                        </View>
+                        <View style={styles.chittyItem}>
+                          <Text style={styles.chittyItemLabel}>Total Paid</Text>
+                          <Text style={styles.chittyItemValue}>₹{formatINR(totalInvested, true)}</Text>
+                        </View>
+                      </View>
+                      {rd.accountId && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: Spacing.sm }}>
+                          <Text style={{ fontSize: 10, color: Colors.textMuted }}>Auto-debit account linked</Text>
+                        </View>
+                      )}
                     </TouchableOpacity>
                   </Card>
                 );
@@ -686,6 +790,60 @@ const WealthScreen: React.FC = observer(() => {
               </View>
             ))}
             <TouchableOpacity style={styles.saveBtn} onPress={handleSaveChitty}><Text style={styles.saveBtnText}>{editingChittyId ? 'Update Chitty' : 'Add Chitty'}</Text></TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Add RD Modal */}
+      <Modal visible={showModal === 'rd' || showModal === 'rd_add'} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.modal}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>{editingRDId ? 'Edit RD' : 'New Recurring Deposit'}</Text>
+            <TouchableOpacity onPress={() => { setShowModal(null); resetRDForm(); }}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
+          </View>
+          <ScrollView style={{ padding: Spacing.base }}>
+            {[
+              { label: 'Deposit Name *', key: 'name', placeholder: 'e.g. SBI RD', keyboard: 'default' },
+              { label: 'Monthly Installment (₹) *', key: 'monthlyInstallment', placeholder: '0', keyboard: 'decimal-pad' },
+              { label: 'Duration (months) *', key: 'durationMonths', placeholder: '12', keyboard: 'numeric' },
+              { label: 'Annual ROI (%)', key: 'roi', placeholder: '7.0', keyboard: 'decimal-pad' },
+              { label: 'Deposit Date (1-31)', key: 'depositDay', placeholder: '1', keyboard: 'numeric' },
+            ].map(({ label, key, placeholder, keyboard }) => (
+              <View key={key}>
+                <Text style={styles.inputLabel}>{label}</Text>
+                <TextInput style={styles.input} value={(rdForm as any)[key]} onChangeText={v => setRDForm(f => ({ ...f, [key]: v }))} placeholder={placeholder} placeholderTextColor={Colors.textMuted} keyboardType={(keyboard as any)} />
+              </View>
+            ))}
+
+            <Text style={styles.inputLabel}>Auto Debit Account (Optional)</Text>
+            <Text style={styles.paymentHint}>Link a bank account for auto-tracking payments</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+              <TouchableOpacity
+                style={[styles.paymentChip, !rdForm.accountId && styles.paymentChipActive]}
+                onPress={() => setRDForm(f => ({ ...f, accountId: '' }))}
+              >
+                <Text style={styles.paymentChipEmoji}>🚫</Text>
+                <View>
+                  <Text style={[styles.paymentChipLabel, !rdForm.accountId && styles.paymentChipLabelActive]}>None</Text>
+                  <Text style={styles.paymentChipSub}>Manual payment</Text>
+                </View>
+              </TouchableOpacity>
+              {accounts.debitAccounts.map(opt => (
+                <TouchableOpacity
+                  key={opt.id}
+                  style={[styles.paymentChip, rdForm.accountId === opt.id && styles.paymentChipActive]}
+                  onPress={() => setRDForm(f => ({ ...f, accountId: opt.id }))}
+                >
+                  <Text style={styles.paymentChipEmoji}>business-outline</Text>
+                  <View>
+                    <Text style={[styles.paymentChipLabel, rdForm.accountId === opt.id && styles.paymentChipLabelActive]}>{opt.bankName}</Text>
+                    <Text style={styles.paymentChipSub}>Auto deduct</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSaveRD}><Text style={styles.saveBtnText}>{editingRDId ? 'Update RD' : 'Create RD'}</Text></TouchableOpacity>
           </ScrollView>
         </View>
       </Modal>

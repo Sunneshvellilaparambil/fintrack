@@ -47,8 +47,8 @@ const VehicleScreen: React.FC = observer(({ navigation }: any) => {
       odometer: parseInt(form.odometer) || 0,
       insuranceDue: new Date(form.insuranceDue),
       loanId: form.loanId || undefined,
-      nextServiceDate: form.nextServiceType === 'date' && form.nextServiceValue ? new Date(form.nextServiceValue) : null,
-      nextServiceKm: form.nextServiceType === 'km' && form.nextServiceValue ? parseInt(form.nextServiceValue) : null,
+      nextServiceDate: form.nextServiceType === 'date' && form.nextServiceValue ? new Date(form.nextServiceValue) : undefined,
+      nextServiceKm: form.nextServiceType === 'km' && form.nextServiceValue ? parseInt(form.nextServiceValue) : undefined,
     };
 
     if (editingVehicleId) {

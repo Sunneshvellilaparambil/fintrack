@@ -87,7 +87,7 @@ const BudgetScreen: React.FC = observer(({ navigation }: any) => {
     }
 
     if (data.accountId && accounts.creditCards.some(c => c.id === data.accountId)) {
-      await accounts.recalculateCardBalance(data.accountId);
+      // Balance is recalculated automatically by reactive queries
     }
 
     setShowAddTxn(false);

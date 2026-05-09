@@ -226,6 +226,10 @@ export function sipFutureValue(
   return round2(monthlyContribution * ((Math.pow(1 + r, n) - 1) / r) * (1 + r));
 }
 
+export const calculateRDmaturity = (installment: number, annualRoi: number, months: number) => {
+  return sipFutureValue(installment, annualRoi, months / 12);
+};
+
 // ─── Debt-to-Income Ratio ─────────────────────────────────────────────────────
 
 export function debtToIncomeRatio(monthlyEMITotal: number, monthlyIncome: number): number {

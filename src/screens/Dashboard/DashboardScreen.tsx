@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   ScrollView, View, Text, StyleSheet, TouchableOpacity,
-  RefreshControl, StatusBar, Modal, Alert, TextInput,
+  RefreshControl, StatusBar, Modal, Alert, TextInput, ActivityIndicator,
 } from 'react-native';
 import type { ViewStyle } from 'react-native';
 import { observer } from 'mobx-react-lite';
@@ -34,6 +34,64 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
   const { auth, accounts, loans, budget } = useStores();
   const [refreshing, setRefreshing] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
+  const [hideBalance, setHideBalance] = React.useState(true);
+
+  // ── Salary check popup state ───────────────────────────────────────────────
+  const [showSalaryCheck, setShowSalaryCheck] = React.useState(false);
+  const [salaryActualStr, setSalaryActualStr] = React.useState('');
+  const [salarySubmitting, setSalarySubmitting] = React.useState(false);
+
+  // Show once per app session on the 1st of the month — useRef tracks if shown
+  const salaryCheckShown = React.useRef(false);
+  React.useEffect(() => {
+    const today = new Date();
+    if (today.getDate() !== 1) return;          // only on the 1st
+    if (salaryCheckShown.current) return;       // already shown this session
+    if (budget.monthlyIncome <= 0) return;      // no income set up yet
+    salaryCheckShown.current = true;
+    setShowSalaryCheck(true);
+  }, [budget.monthlyIncome]);
+
+  const dismissSalaryCheck = (markSeen = true) => {
+    if (markSeen) salaryCheckShown.current = true;
+    setShowSalaryCheck(false);
+    setSalaryActualStr('');
+  };
+
+  const handleSalaryConfirm = async (useActual: boolean) => {
+    const expected = budget.monthlyIncome;
+    const actual = useActual ? parseFloat(salaryActualStr.replace(/,/g, '').trim()) : expected;
+    if (useActual && (!Number.isFinite(actual) || actual <= 0)) {
+      Alert.alert('Invalid amount', 'Please enter a valid salary amount.');
+      return;
+    }
+    setSalarySubmitting(true);
+    try {
+      if (useActual && Math.abs(actual - expected) > 1) {
+        // Update the monthly income source to the new amount
+        const monthlySrc = budget.incomeSources.find(i => i.frequency === 'monthly');
+        if (monthlySrc) {
+          await budget.updateIncomeSource(monthlySrc.id, { amount: actual });
+        } else {
+          // Create a new income source if none exists
+          await budget.addIncomeSource({
+            name: 'Salary',
+            amount: actual,
+            frequency: 'monthly',
+            date: new Date(),
+          });
+        }
+        Alert.alert('✅ Updated', `Monthly salary updated to ₹${formatINR(actual)}.`);
+      } else {
+        Alert.alert('✅ Noted', `Salary of ₹${formatINR(actual)} confirmed for this month.`);
+      }
+      dismissSalaryCheck(true);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Could not update salary.');
+    } finally {
+      setSalarySubmitting(false);
+    }
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -137,9 +195,14 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
         <GlowCard glowColor={Colors.primary}>
           <View style={styles.heroTop}>
             <View>
-              <Text style={styles.heroLabel}>LIQUID BALANCE</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <Text style={styles.heroLabel}>LIQUID BALANCE</Text>
+                <TouchableOpacity onPress={() => setHideBalance(!hideBalance)} activeOpacity={0.7}>
+                  <Icon name={hideBalance ? 'eye-off' : 'eye'} size={18} color={Colors.textMuted} />
+                </TouchableOpacity>
+              </View>
               <Text style={[styles.heroValue, { color: Colors.success }]}>
-                ₹{formatINR(accounts.totalLiquid)}
+                {hideBalance ? '₹ ••••••' : `₹${formatINR(accounts.totalLiquid)}`}
               </Text>
             </View>
             <View style={styles.heroPill}>
@@ -541,6 +604,75 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
         <View style={{ height: Spacing.xxl }} />
       </ScrollView>
 
+      {/* ── Salary Check Popup ─────────────────────────── */}
+      <Modal visible={showSalaryCheck} animationType="fade" transparent>
+        <View style={styles.salaryModalBg}>
+          <View style={styles.salaryModalCard}>
+            {/* Icon + title */}
+            <View style={styles.salaryIconRow}>
+              <View style={styles.salaryIconCircle}>
+                <Icon name="cash" size={32} color={Colors.success} />
+              </View>
+            </View>
+            <Text style={styles.salaryTitle}>💰 Salary Check</Text>
+            <Text style={styles.salarySub}>
+              It's the 1st! Did your salary get credited this month?
+            </Text>
+
+            {/* Expected amount */}
+            <View style={styles.salaryExpectedRow}>
+              <Text style={styles.salaryExpectedLabel}>EXPECTED SALARY</Text>
+              <Text style={styles.salaryExpectedAmt}>₹{formatINR(budget.monthlyIncome)}</Text>
+            </View>
+
+            {/* Different amount input */}
+            <Text style={[styles.salarySubLabel, { marginTop: Spacing.base }]}>
+              Received a different amount? Enter it below:
+            </Text>
+            <TextInput
+              style={styles.salaryInput}
+              value={salaryActualStr}
+              onChangeText={setSalaryActualStr}
+              keyboardType="decimal-pad"
+              placeholder={`e.g. ${Math.round(budget.monthlyIncome)}`}
+              placeholderTextColor={Colors.textMuted}
+            />
+
+            {/* Action buttons */}
+            <View style={styles.salaryBtnRow}>
+              <TouchableOpacity
+                style={[styles.salaryBtnYes, salarySubmitting && { opacity: 0.5 }]}
+                disabled={salarySubmitting}
+                onPress={() => handleSalaryConfirm(false)}
+                activeOpacity={0.8}
+              >
+                {salarySubmitting
+                  ? <ActivityIndicator color={Colors.textPrimary} size="small" />
+                  : <Text style={styles.salaryBtnYesTxt}>✓ Yes, Same Amount</Text>}
+              </TouchableOpacity>
+
+              {salaryActualStr.trim().length > 0 && (
+                <TouchableOpacity
+                  style={[styles.salaryBtnUpdate, salarySubmitting && { opacity: 0.5 }]}
+                  disabled={salarySubmitting}
+                  onPress={() => handleSalaryConfirm(true)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.salaryBtnUpdateTxt}>Update Amount</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={styles.salarySkip}
+              onPress={() => dismissSalaryCheck(true)}
+            >
+              <Text style={styles.salarySkipTxt}>Remind me later</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Settings Modal ────────────────────────────────────── */}
       <Modal visible={showSettings} animationType="slide" presentationStyle="pageSheet">
         <View style={styles.modalBg}>
@@ -854,7 +986,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: Colors.border,
   },
   actionBtnIcon: { 
-    width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.primaryDim, 
+    width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.primaryGlow, 
     alignItems: 'center', justifyContent: 'center' 
   },
   actionBtnLabel: { fontSize: FontSize.base, fontWeight: FontWeight.bold, color: Colors.textPrimary },
@@ -890,4 +1022,77 @@ const styles = StyleSheet.create({
   paymentChipLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textSecondary },
   paymentChipLabelActive: { color: Colors.textPrimary, fontWeight: FontWeight.bold },
   paymentChipSub: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 1 },
+
+  // Salary check modal
+  salaryModalBg: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center', padding: Spacing.lg,
+  },
+  salaryModalCard: {
+    backgroundColor: Colors.bgCard, borderRadius: Radius.xl,
+    padding: Spacing.lg, gap: Spacing.sm,
+    borderWidth: 1, borderColor: `${Colors.success}30`,
+  },
+  salaryIconRow: { alignItems: 'center', marginBottom: 4 },
+  salaryIconCircle: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: `${Colors.success}18`,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  salaryTitle: {
+    fontSize: FontSize.xl, fontWeight: FontWeight.black,
+    color: Colors.textPrimary, textAlign: 'center',
+  },
+  salarySub: {
+    fontSize: FontSize.sm, color: Colors.textSecondary,
+    textAlign: 'center', lineHeight: 20,
+  },
+  salaryExpectedRow: {
+    backgroundColor: `${Colors.success}12`,
+    borderRadius: Radius.md, padding: Spacing.base,
+    alignItems: 'center', marginTop: 4,
+    borderWidth: 1, borderColor: `${Colors.success}25`,
+  },
+  salaryExpectedLabel: {
+    fontSize: 10, fontWeight: FontWeight.bold,
+    color: Colors.textMuted, letterSpacing: 1,
+    textTransform: 'uppercase', marginBottom: 4,
+  },
+  salaryExpectedAmt: {
+    fontSize: FontSize.xxl, fontWeight: FontWeight.black,
+    color: Colors.success, letterSpacing: -1,
+  },
+  salarySubLabel: {
+    fontSize: FontSize.xs, color: Colors.textSecondary,
+    fontWeight: FontWeight.medium,
+  },
+  salaryInput: {
+    backgroundColor: Colors.bg, borderRadius: Radius.md,
+    padding: Spacing.base, color: Colors.textPrimary,
+    fontSize: FontSize.base, borderWidth: 1.5,
+    borderColor: Colors.border,
+  },
+  salaryBtnRow: { gap: Spacing.sm, marginTop: Spacing.sm },
+  salaryBtnYes: {
+    backgroundColor: Colors.success, borderRadius: Radius.md,
+    padding: Spacing.base, alignItems: 'center',
+  },
+  salaryBtnYesTxt: {
+    color: Colors.textPrimary, fontWeight: FontWeight.black,
+    fontSize: FontSize.base,
+  },
+  salaryBtnUpdate: {
+    backgroundColor: Colors.primaryGlow, borderRadius: Radius.md,
+    padding: Spacing.base, alignItems: 'center',
+    borderWidth: 1, borderColor: Colors.primary,
+  },
+  salaryBtnUpdateTxt: {
+    color: Colors.primaryLight, fontWeight: FontWeight.bold,
+    fontSize: FontSize.base,
+  },
+  salarySkip: { alignItems: 'center', paddingVertical: Spacing.sm },
+  salarySkipTxt: {
+    fontSize: FontSize.xs, color: Colors.textMuted,
+    textDecorationLine: 'underline',
+  },
 });

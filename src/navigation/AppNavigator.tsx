@@ -15,8 +15,7 @@ import AuthScreen from '../screens/Auth/AuthScreen';
 import DashboardScreen from '../screens/Dashboard/DashboardScreen';
 import AccountsScreen from '../screens/Accounts/AccountsScreen';
 import BudgetScreen from '../screens/Budget/BudgetScreen';
-import BillsScreen from '../screens/Bills/BillsScreen';
-import EMIScreen from '../screens/EMI/EMIScreen';
+import PaymentsScreen from '../screens/Payments/PaymentsScreen';
 import JointVentureScreen from '../screens/JointVenture/JointVentureScreen';
 import WealthScreen from '../screens/Wealth/WealthScreen';
 import VehicleScreen from '../screens/Vehicles/VehicleScreen';
@@ -30,8 +29,7 @@ const TAB_ICONS: Record<string, { active: string; inactive: string }> = {
   Dashboard: { active: 'home', inactive: 'home-outline' },
   Accounts:  { active: 'card', inactive: 'card-outline' },
   Budget:    { active: 'pie-chart', inactive: 'pie-chart-outline' },
-  Bills:     { active: 'receipt', inactive: 'receipt-outline' },
-  EMI:       { active: 'calendar', inactive: 'calendar-outline' },
+  Payments:  { active: 'wallet', inactive: 'wallet-outline' },
   Joint:     { active: 'people', inactive: 'people-outline' },
   Wealth:    { active: 'trending-up', inactive: 'trending-up-outline' },
   Vehicles:  { active: 'car', inactive: 'car-outline' },
@@ -104,8 +102,7 @@ const MainTabs = () => {
     <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ title: 'Home' }} />
     <Tab.Screen name="Accounts" component={AccountsScreen} />
     <Tab.Screen name="Budget" component={BudgetScreen} />
-    <Tab.Screen name="Bills" component={BillsScreen as any} />
-    <Tab.Screen name="EMI" component={EMIScreen} options={{ title: 'EMI Hub' }} />
+    <Tab.Screen name="Payments" component={PaymentsScreen} options={{ title: 'Payments', headerShown: false }} />
     <Tab.Screen name="Joint" component={JointVentureScreen} options={{ title: 'Joint' }} />
     <Tab.Screen name="Wealth" component={WealthScreen} />
     <Tab.Screen name="Vehicles" component={VehicleScreen} />
