@@ -9,9 +9,11 @@ import { runInAction } from 'mobx';
 import { useStores, loadAllStores } from '../../stores';
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '../../theme';
 import {
-  Card, GlowCard, ProgressBar, SectionHeader, Badge, Divider, StatRow,
+  Card, GlowCard, ProgressBar, SectionHeader, Badge, Divider,
 } from '../../components/shared';
-import { DonutChart, BarChart, HorizontalBar, StackedBar } from '../../components/Charts';
+import { 
+  DonutChart, BarChart, HorizontalBar, StackedBar, RadialProgress, SparkLine 
+} from '../../components/Charts';
 import { formatINR, creditUtilizationColor, calculateEMI } from '../../utils/finance';
 import { exportData, importData } from '../../utils/backup';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -41,13 +43,13 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
   const [salaryActualStr, setSalaryActualStr] = React.useState('');
   const [salarySubmitting, setSalarySubmitting] = React.useState(false);
 
-  // Show once per app session on the 1st of the month — useRef tracks if shown
+  // Show once per app session on the 1st of the month
   const salaryCheckShown = React.useRef(false);
   React.useEffect(() => {
     const today = new Date();
-    if (today.getDate() !== 1) return;          // only on the 1st
-    if (salaryCheckShown.current) return;       // already shown this session
-    if (budget.monthlyIncome <= 0) return;      // no income set up yet
+    if (today.getDate() !== 1) return;
+    if (salaryCheckShown.current) return;
+    if (budget.monthlyIncome <= 0) return;
     salaryCheckShown.current = true;
     setShowSalaryCheck(true);
   }, [budget.monthlyIncome]);
@@ -68,12 +70,10 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
     setSalarySubmitting(true);
     try {
       if (useActual && Math.abs(actual - expected) > 1) {
-        // Update the monthly income source to the new amount
         const monthlySrc = budget.incomeSources.find(i => i.frequency === 'monthly');
         if (monthlySrc) {
           await budget.updateIncomeSource(monthlySrc.id, { amount: actual });
         } else {
-          // Create a new income source if none exists
           await budget.addIncomeSource({
             name: 'Salary',
             amount: actual,
@@ -101,7 +101,6 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
 
   /* ── computed values ─────────────────────────────────────────── */
 
-  // Credit card totals from @computed (never from stored currentBalance)
   const totalCreditUsed  = accounts.totalCreditOutstanding;
   const totalCreditLimit = accounts.creditCards.reduce((s, c) => s + (c.creditLimit ?? 0), 0);
   const overallUtil      = totalCreditLimit > 0 ? (totalCreditUsed / totalCreditLimit) * 100 : 0;
@@ -111,7 +110,6 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
   const totalSpent = b.needs.spent + b.wants.spent + b.savings.spent;
   const income = budget.monthlyIncome;
 
-  // Loan type breakdown for donut
   const housingEMI = loans.housingLoans.reduce(
     (s, l) => s + calculateEMI(l.principal, l.roi, l.tenureMonths), 0);
   const vehicleEMI = loans.vehicleLoans.reduce(
@@ -119,41 +117,38 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
   const personalEMI = loans.personalLoans.reduce(
     (s, l) => s + calculateEMI(l.principal, l.roi, l.tenureMonths), 0);
 
-  // spending health
   const spendRatio = income > 0 ? (totalSpent / income) * 100 : 0;
   const spendColor = spendRatio < 60 ? Colors.success
     : spendRatio < 90 ? Colors.warning : Colors.danger;
 
   const today = new Date();
-  const daysUntilEMI = (emiDay: number) => {
-    const next = new Date(today.getFullYear(), today.getMonth(), emiDay);
-    if (next <= today) next.setMonth(next.getMonth() + 1);
-    return Math.ceil((next.getTime() - today.getTime()) / 86400000);
-  };
 
-  // sub-category spending this month
-  const subSpend: Record<string, number> = {};
-  budget.transactions.forEach(t => {
-    const d = new Date(t.date);
-    if (
-      t.amount < 0 &&
-      d.getMonth() === today.getMonth() &&
-      d.getFullYear() === today.getFullYear()
-    ) {
-      subSpend[t.subCategory] = (subSpend[t.subCategory] ?? 0) + Math.abs(t.amount);
-    }
+  // spending trends (last 7 days)
+  const last7Days = Array.from({ length: 7 }).map((_, i) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() - (6 - i));
+    return d;
   });
-  const subSpendArr = Object.entries(subSpend)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
+  
+  const dailySpendData = last7Days.map(d => {
+    const dateStr = d.toISOString().split('T')[0];
+    const spent = budget.transactions
+      .filter(t => {
+        if (!t.date) return false;
+        const dObj = t.date instanceof Date ? t.date : new Date(t.date);
+        return t.amount < 0 && dObj.toISOString().split('T')[0] === dateStr;
+      })
+      .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    return { 
+      label: d.toLocaleDateString('en-IN', { weekday: 'short' }), 
+      value: spent,
+      color: spent > (income / 30) * 1.5 ? Colors.danger : Colors.primary
+    };
+  });
 
-  // recent transactions
-  const recentTxns = budget.transactions
-    .slice()
-    .sort((a, b) => +new Date(b.date) - +new Date(a.date))
-    .slice(0, 5);
+  const sparklineData = dailySpendData.map(d => d.value);
 
-  /* ── EMI bar data ────────────────────────────────────────────── */
+  // EMI bar data
   const emiBarData = loans.loans.slice(0, 6).map(l => ({
     label: l.lender.split(' ')[0].slice(0, 7),
     value: Math.round(calculateEMI(l.principal, l.roi, l.tenureMonths)),
@@ -211,395 +206,212 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
               </Text>
             </View>
           </View>
+          
           <Divider style={{ marginVertical: Spacing.sm }} />
-          <StatRow
-            items={[
-              {
-                label: 'Monthly EMI',
-                value: `₹${formatINR(loans.totalMonthlyEMI, true)}`,
-                color: Colors.warning,
-              },
-              {
-                label: 'Due on cards',
-                value: `₹${formatINR(totalCreditUsed)}`,
-                color: Colors.danger,
-              },
-              {
-                label: 'Monthly Income',
-                value: income > 0 ? `₹${formatINR(income, true)}` : 'Not set',
-                color: Colors.success,
-              },
-            ]}
-          />
+
+          {/* Visual KPI Tiles */}
+          <View style={styles.kpiRow}>
+            <View style={styles.kpiTile}>
+              <Text style={styles.kpiLabel}>INCOME</Text>
+              <Text style={[styles.kpiValue, { color: Colors.success }]}>₹{formatINR(income, true)}</Text>
+              <SparkLine data={[income*0.9, income*1.1, income]} height={20} width={80} color={Colors.success} filled={false} />
+            </View>
+            <View style={styles.kpiTile}>
+              <Text style={styles.kpiLabel}>SPENT</Text>
+              <Text style={[styles.kpiValue, { color: spendColor }]}>₹{formatINR(totalSpent, true)}</Text>
+              <ProgressBar pct={spendRatio} color={spendColor} height={4} style={{ marginTop: 8 }} />
+            </View>
+            <View style={styles.kpiTile}>
+              <Text style={styles.kpiLabel}>DUE</Text>
+              <Text style={[styles.kpiValue, { color: Colors.danger }]}>₹{formatINR(totalCreditUsed, true)}</Text>
+              <RadialProgress pct={overallUtil} color={overallUtilColor} size={30} strokeWidth={4} />
+            </View>
+          </View>
         </GlowCard>
 
-        {/* ── This Month Spending ───────────────────────────────── */}
+        {/* ── Spending Trend ────────────────────────────────────── */}
+        <SectionHeader title="Recent Spending Trend" />
+        <Card style={styles.trendCard}>
+          <View style={styles.trendHeader}>
+            <View>
+              <Text style={styles.trendTitle}>Daily Activity</Text>
+              <Text style={styles.trendSub}>Last 7 days spending patterns</Text>
+            </View>
+            <View style={styles.trendStat}>
+              <Text style={styles.trendStatVal}>₹{formatINR(dailySpendData.reduce((s,d)=>s+d.value, 0), true)}</Text>
+              <Text style={styles.trendStatLabel}>Week Total</Text>
+            </View>
+          </View>
+          <BarChart data={dailySpendData} height={120} showValues barColor={Colors.primary} />
+        </Card>
+
+        {/* ── This Month Spending Breakdown ──────────────────────── */}
         <SectionHeader
-          title={`${monthName()} Spending`}
+          title={`${monthName()} Breakdown`}
           action={
-            <TouchableOpacity
-              style={styles.navBtn}
-              onPress={() => navigation?.navigate?.('Budget')}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity onPress={() => navigation?.navigate?.('Budget')}>
               <Text style={styles.navBtnText}>Details →</Text>
             </TouchableOpacity>
           }
         />
-
-        <Card style={styles.spendCard}>
-          {totalSpent > 0 ? (
-            <>
-              {/* Donut */}
-              <DonutChart
-                size={150}
-                strokeWidth={20}
-                centerLabel={`₹${totalSpent >= 1000
-                  ? `${(totalSpent / 1000).toFixed(0)}k` : totalSpent.toFixed(0)}`}
-                centerSub="spent"
-                showLegend
-                slices={[
-                  { value: b.needs.spent, color: Colors.info, label: `Needs  ₹${formatINR(b.needs.spent, true)}` },
-                  { value: b.wants.spent, color: Colors.warning, label: `Wants  ₹${formatINR(b.wants.spent, true)}` },
-                  { value: b.savings.spent, color: Colors.success, label: `Savings  ₹${formatINR(b.savings.spent, true)}` },
-                ].filter(s => s.value > 0)}
-              />
-
-              <Divider style={{ marginVertical: Spacing.sm }} />
-
-              {/* Income vs spent stacked bar */}
-              {income > 0 && (
-                <View style={styles.incomeVsSpend}>
-                  <View style={styles.incomeRow}>
-                    <Text style={styles.vs50Label}>Income</Text>
-                    <Text style={[styles.vs50Val, { color: Colors.success }]}>
-                      ₹{formatINR(income)}
-                    </Text>
+        <Card style={styles.breakdownCard}>
+          <View style={styles.breakdownRow}>
+            <DonutChart
+              size={130}
+              strokeWidth={16}
+              centerLabel={`₹${totalSpent >= 1000 ? `${(totalSpent / 1000).toFixed(0)}k` : totalSpent.toFixed(0)}`}
+              centerSub="spent"
+              showLegend={false}
+              slices={[
+                { value: b.needs.spent, color: Colors.info, label: 'Needs' },
+                { value: b.wants.spent, color: Colors.warning, label: 'Wants' },
+                { value: b.savings.spent, color: Colors.success, label: 'Savings' },
+              ].filter(s => s.value > 0)}
+            />
+            <View style={styles.breakdownLegend}>
+              {[
+                { label: 'Needs', value: b.needs.spent, color: Colors.info },
+                { label: 'Wants', value: b.wants.spent, color: Colors.warning },
+                { label: 'Savings', value: b.savings.spent, color: Colors.success },
+              ].map(item => (
+                <View key={item.label} style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: item.color }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.legendLabel}>{item.label}</Text>
+                    <Text style={styles.legendValue}>₹{formatINR(item.value, true)}</Text>
                   </View>
-                  <View style={styles.incomeRow}>
-                    <Text style={styles.vs50Label}>Spent</Text>
-                    <Text style={[styles.vs50Val, { color: spendColor }]}>
-                      ₹{formatINR(totalSpent)}
-                      {'  '}
-                      <Text style={[styles.vs50Pct, { color: spendColor }]}>
-                        ({spendRatio.toFixed(0)}%)
-                      </Text>
-                    </Text>
-                  </View>
-                  <ProgressBar
-                    pct={Math.min(spendRatio, 100)}
-                    color={spendColor}
-                    height={8}
-                    style={{ marginTop: 6 }}
-                  />
+                  <Text style={[styles.legendPct, { color: item.color }]}>
+                    {income > 0 ? ((item.value / income) * 100).toFixed(0) : 0}%
+                  </Text>
                 </View>
-              )}
-            </>
-          ) : (
-            <View style={styles.emptySpend}>
-              <Icon name="pie-chart-outline" size={48} color={Colors.textMuted} style={{ marginBottom: Spacing.sm }} />
-              <Text style={styles.emptyTitle}>No spending recorded yet</Text>
-              <Text style={styles.emptySub}>
-                Go to Budget → + Transaction to add spending
-              </Text>
+              ))}
             </View>
-          )}
+          </View>
+          <Divider style={{ marginVertical: Spacing.sm }} />
+          <StackedBar 
+            height={10}
+            segments={[
+              { value: b.needs.spent, color: Colors.info, label: 'Needs' },
+              { value: b.wants.spent, color: Colors.warning, label: 'Wants' },
+              { value: b.savings.spent, color: Colors.success, label: 'Savings' },
+              { value: Math.max(0, income - totalSpent), color: Colors.bgElevated, label: 'Remaining' }
+            ].filter(s => s.value > 0)}
+          />
         </Card>
 
-        {/* ── Spend by Category ─────────────────────────────────── */}
-        {subSpendArr.length > 0 && (
-          <>
-            <SectionHeader title="Top Spending Categories" />
-            <Card style={styles.catCard}>
-              {subSpendArr.map(([cat, amt]) => (
-                <HorizontalBar
-                  key={cat}
-                  label={cat.charAt(0).toUpperCase() + cat.slice(1)}
-                  value={amt}
-                  max={subSpendArr[0][1]}
-                  color={Colors.primary}
-                  valueLabel={`₹${formatINR(amt, true)}`}
+        {/* ── Budget Health Gauges ────────────────────────────────── */}
+        <SectionHeader title="Budget Health (50/30/20)" />
+        <View style={styles.gaugeRow}>
+          {[
+            { label: 'Needs', spent: b.needs.spent, alloc: b.needs.allocated, color: Colors.info },
+            { label: 'Wants', spent: b.wants.spent, alloc: b.wants.allocated, color: Colors.warning },
+            { label: 'Savings', spent: b.savings.spent, alloc: b.savings.allocated, color: Colors.success },
+          ].map(row => {
+            const pct = row.alloc > 0 ? (row.spent / row.alloc) * 100 : 0;
+            const over = row.spent > row.alloc;
+            return (
+              <Card key={row.label} style={styles.gaugeCard}>
+                <RadialProgress 
+                  pct={Math.min(pct, 100)} 
+                  color={over ? Colors.danger : row.color} 
+                  size={70} 
+                  strokeWidth={8}
+                  label={`${Math.round(pct)}%`}
                 />
-              ))}
-            </Card>
-          </>
-        )}
+                <Text style={styles.gaugeTitle}>{row.label}</Text>
+                <Text style={[styles.gaugeSub, { color: over ? Colors.danger : Colors.textMuted }]}>
+                  {over ? 'Over!' : 'Healthy'}
+                </Text>
+              </Card>
+            );
+          })}
+        </View>
 
-        {/* ── Budget Health ─────────────────────────────────────── */}
-        {income > 0 && (
-          <>
-            <SectionHeader title="50 / 30 / 20 Budget Health" />
-            <Card style={styles.budgetCard}>
-              {[
-                { label: 'Needs 50%', spent: b.needs.spent, alloc: b.needs.allocated, color: Colors.info },
-                { label: 'Wants 30%', spent: b.wants.spent, alloc: b.wants.allocated, color: Colors.warning },
-                { label: 'Savings 20%', spent: b.savings.spent, alloc: b.savings.allocated, color: Colors.success },
-              ].map(row => {
-                const pct = row.alloc > 0
-                  ? Math.min((row.spent / row.alloc) * 100, 100) : 0;
-                const over = row.spent > row.alloc;
-                return (
-                  <View key={row.label} style={styles.budgetRow}>
-                    <View style={styles.budgetLeft}>
-                      <Text style={styles.budgetLabel}>{row.label}</Text>
-                      <Text style={[styles.budgetStat, { color: over ? Colors.danger : Colors.textMuted }]}>
-                        ₹{formatINR(row.spent, true)} / ₹{formatINR(row.alloc, true)}
-                        {over ? '  ⚠ over' : ''}
-                      </Text>
-                    </View>
-                    <View style={styles.budgetRight}>
-                      <Text style={[styles.budgetPct, { color: over ? Colors.danger : row.color }]}>
-                        {pct.toFixed(0)}%
-                      </Text>
-                    </View>
-                    <View style={styles.budgetBarWrap}>
-                      <ProgressBar
-                        pct={pct}
-                        color={over ? Colors.danger : row.color}
-                        height={6}
-                      />
-                    </View>
-                  </View>
-                );
-              })}
-            </Card>
-          </>
-        )}
-
-        {/* ── EMI Calendar ─────────────────────────────────────── */}
+        {/* ── EMI Portfolio ───────────────────────────────────────── */}
         <SectionHeader
-          title="EMI Due This Month"
+          title="Debt Portfolio"
           action={
-            <TouchableOpacity
-              style={styles.navBtn}
-              onPress={() => navigation?.navigate?.('EMI')}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity onPress={() => navigation?.navigate?.('EMI')}>
               <Text style={styles.navBtnText}>Manage →</Text>
             </TouchableOpacity>
           }
         />
-
-        {loans.loans.length === 0 ? (
-          <Card style={styles.emptyCard}>
-            <Icon name="calendar-outline" size={48} color={Colors.textMuted} style={{ marginBottom: Spacing.sm }} />
-            <Text style={styles.emptyTitle}>No active loans</Text>
-            <Text style={styles.emptySub}>Add loans in EMI tab to track dues</Text>
-          </Card>
-        ) : (
-          <>
-            {/* EMI Bar chart */}
-            {emiBarData.length > 1 && (
-              <Card style={styles.emiBarCard}>
-                <Text style={styles.chartCaption}>Monthly EMI by Lender</Text>
-                <BarChart data={emiBarData} height={140} showValues />
-              </Card>
-            )}
-
-            {/* EMI Loan cards */}
-            {loans.loans.slice(0, 3).map(loan => {
-              const emi = calculateEMI(loan.principal, loan.roi, loan.tenureMonths);
-              
-              // Calculate next real due date based on progress
-              const start = new Date(loan.startDate);
-              const nextDue = new Date(start.getFullYear(), start.getMonth() + loan.paidEmis, loan.emiDay);
-              const today = new Date();
-              const days = Math.ceil((nextDue.getTime() - today.getTime()) / 86400000);
-              const isPaidInFull = loan.paidEmis >= loan.tenureMonths;
-
-              const isUrgent = days <= 5;
-              const progress = (loan.paidEmis / loan.tenureMonths) * 100;
-              const loanColor = loan.type === 'housing' ? Colors.info
-                : loan.type === 'vehicle' ? Colors.warning : Colors.danger;
-              return (
-                <TouchableOpacity
-                  key={loan.id}
-                  activeOpacity={0.75}
-                  onPress={() => navigation?.navigate?.('EMI')}
-                >
-                  <Card style={StyleSheet.flatten([styles.loanCard, { borderLeftWidth: 3, borderLeftColor: loanColor }]) as any}>
-                    <View style={styles.loanRow}>
-                      <View style={[styles.loanIcon, { backgroundColor: `${loanColor}18` }]}>
-                        <Icon 
-                          name={loan.type === 'housing' ? 'home' : loan.type === 'vehicle' ? 'car' : 'person'} 
-                          size={20} 
-                          color={loanColor} 
-                        />
-                      </View>
-                      <View style={styles.loanInfo}>
-                        <Text style={styles.loanName}>{loan.lender}</Text>
-                        <Badge
-                          label={loan.type.toUpperCase()}
-                          color={loanColor}
-                          bgColor={`${loanColor}18`}
-                        />
-                      </View>
-                      <View style={styles.loanRight}>
-                        <Text style={[styles.loanEmi, { color: loanColor }]}>
-                          ₹{formatINR(emi)}/mo
-                        </Text>
-                        <Text style={[styles.loanDue, {
-                          color: isPaidInFull ? Colors.success : (days < 0 ? Colors.danger : (isUrgent ? Colors.warning : Colors.textMuted)),
-                        }]}>
-                          {isPaidInFull ? '🎉 Fully Paid' : (days < 0 ? `❗ Overdue ${Math.abs(days)}d` : `Due in ${days}d`)}
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={styles.progressRow}>
-                      <Text style={styles.progressLabel}>
-                        {loan.paidEmis}/{loan.tenureMonths} paid
-                      </Text>
-                      <Text style={[styles.progressPct, { color: loanColor }]}>
-                        {progress.toFixed(0)}%
-                      </Text>
-                    </View>
-                    <ProgressBar pct={progress} color={loanColor} height={6} />
-                  </Card>
-                </TouchableOpacity>
-              );
-            })}
-
-            {/* Debt composition donut */}
-            {(housingEMI + vehicleEMI + personalEMI) > 0 && (
-              <Card style={styles.debtDonut}>
-                <Text style={styles.chartCaption}>Debt Composition</Text>
-                <DonutChart
-                  size={140}
-                  strokeWidth={18}
-                  centerLabel={`₹${formatINR(loans.totalMonthlyEMI, true)}`}
-                  centerSub="/month"
-                  showLegend
-                  slices={[
-                    housingEMI > 0 && { value: housingEMI, color: Colors.info, label: `Housing` },
-                    vehicleEMI > 0 && { value: vehicleEMI, color: Colors.warning, label: `Vehicle` },
-                    personalEMI > 0 && { value: personalEMI, color: Colors.danger, label: `Personal` },
-                  ].filter(Boolean) as any}
-                />
-              </Card>
-            )}
-          </>
-        )}
-
-        {/* ── Credit Utilization ───────────────────────────────── */}
-        {accounts.creditCards.length > 0 && (
-          <>
-            <SectionHeader
-              title="Credit Utilization"
-              action={
-                <TouchableOpacity
-                  style={styles.navBtn}
-                  onPress={() => navigation?.navigate?.('Accounts')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.navBtnText}>All cards →</Text>
-                </TouchableOpacity>
-              }
-            />
-
-            <Card style={styles.utilCard}>
-              <View style={styles.utilTop}>
-                <View>
-                  <Text style={styles.heroLabel}>OVERALL UTILIZATION</Text>
-                  <Text style={[styles.utilBig, { color: overallUtilColor }]}>
-                    {overallUtil > 100 ? '100%+' : `${overallUtil.toFixed(1)}%`}
-                  </Text>
-                </View>
-                <Badge
-                  label={overallUtil > 100 ? '✗ OVER LIMIT' : overallUtil < 30 ? '✓ HEALTHY' : overallUtil < 50 ? '⚠ MODERATE' : '✗ HIGH'}
-                  color={overallUtilColor}
-                  bgColor={`${overallUtilColor}18`}
-                />
-              </View>
-              <ProgressBar
-                pct={overallUtil}
-                color={overallUtilColor}
-                height={10}
-                style={{ marginVertical: Spacing.sm }}
+        <Card style={styles.emiPortfolioCard}>
+          <Text style={styles.chartCaption}>Monthly EMI Distribution</Text>
+          <View style={styles.portfolioRow}>
+             <DonutChart
+                size={110}
+                strokeWidth={14}
+                centerLabel={`₹${formatINR(loans.totalMonthlyEMI, true)}`}
+                centerSub="/mo"
+                showLegend={false}
+                slices={[
+                  { value: housingEMI, color: Colors.info, label: 'Housing' },
+                  { value: vehicleEMI, color: Colors.warning, label: 'Vehicle' },
+                  { value: personalEMI, color: Colors.danger, label: 'Personal' },
+                ].filter(s => s.value > 0)}
               />
-              <Text style={styles.utilSub}>
-                ₹{formatINR(totalCreditUsed)} outstanding of ₹{formatINR(totalCreditLimit)} total limit
+              <View style={{ flex: 1, paddingLeft: Spacing.base }}>
+                 <BarChart data={emiBarData} height={100} showValues={false} />
+              </View>
+          </View>
+        </Card>
+
+        {/* Horizontal scroll for loan progress visual cards */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalList}>
+          {loans.loans.map(loan => {
+            const progress = (loan.paidEmis / loan.tenureMonths) * 100;
+            const loanColor = loan.type === 'housing' ? Colors.info
+              : loan.type === 'vehicle' ? Colors.warning : Colors.danger;
+            return (
+              <Card key={loan.id} style={styles.scrollCard}>
+                <RadialProgress pct={progress} color={loanColor} size={60} strokeWidth={6} label={`${Math.round(progress)}%`} />
+                <Text style={styles.scrollCardTitle} numberOfLines={1}>{loan.lender}</Text>
+                <Text style={[styles.scrollCardVal, { color: loanColor }]}>₹{formatINR(calculateEMI(loan.principal, loan.roi, loan.tenureMonths), true)}</Text>
+              </Card>
+            );
+          })}
+        </ScrollView>
+
+        {/* ── Credit Utilization ─────────────────────────────────── */}
+        <SectionHeader
+          title="Credit Health"
+          action={
+            <TouchableOpacity onPress={() => navigation?.navigate?.('Accounts')}>
+              <Text style={styles.navBtnText}>All Cards →</Text>
+            </TouchableOpacity>
+          }
+        />
+        <Card style={styles.utilCard}>
+          <View style={styles.utilTopRow}>
+            <View>
+              <Text style={styles.utilLabel}>OVERALL UTILIZATION</Text>
+              <Text style={[styles.utilBigVal, { color: overallUtilColor }]}>
+                {overallUtil.toFixed(1)}%
               </Text>
-            </Card>
+            </View>
+            <RadialProgress pct={overallUtil} color={overallUtilColor} size={80} strokeWidth={10} />
+          </View>
+          <ProgressBar pct={overallUtil} color={overallUtilColor} height={6} style={{ marginTop: Spacing.sm }} />
+          <Text style={styles.utilInfoText}>
+            ₹{formatINR(totalCreditUsed)} used of ₹{formatINR(totalCreditLimit)} limit
+          </Text>
+        </Card>
 
-            {accounts.creditCardSummaries.map(summary => {
-              const { card, totalOutstanding } = summary;
-              const util = card.creditLimit
-                ? (totalOutstanding / card.creditLimit) * 100 : 0;
-              const uc = creditUtilizationColor(util);
-              return (
-                <Card key={card.id} style={styles.creditCard}>
-                  <View style={styles.loanRow}>
-                    <View style={[styles.loanIcon, { backgroundColor: uc + '15' }]}>
-                      <Icon name="card" size={20} color={uc} />
-                    </View>
-                    <View style={styles.loanInfo}>
-                      <Text style={styles.loanName}>{card.bankName} ···{card.cardLast2}</Text>
-                      <Text style={styles.cardSub}>
-                        {'₹'}{formatINR(totalOutstanding)} owed · {'₹'}{formatINR(card.creditLimit ?? 0)} limit
-                      </Text>
-                    </View>
-                    <Text style={[styles.utilBig2, { color: uc }]}>{util > 100 ? '100%+' : util.toFixed(0) + '%'}</Text>
-                  </View>
-                  <ProgressBar pct={util} color={uc} height={6} style={{ marginTop: Spacing.sm }} />
-                </Card>
-              );
-            })}
-          </>
-        )}
-
-
-
-        {/* ── Recent Transactions ──────────────────────────────── */}
-        {recentTxns.length > 0 && (
-          <>
-            <SectionHeader
-              title="Recent Transactions"
-              action={
-                <TouchableOpacity
-                  style={styles.navBtn}
-                  onPress={() => navigation?.navigate?.('Budget')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.navBtnText}>All →</Text>
-                </TouchableOpacity>
-              }
-            />
-            <Card style={styles.txnsCard}>
-              {recentTxns.map((t, i) => (
-                <View key={t.id}>
-                  <View style={styles.txnRow}>
-                    <View style={[styles.txnDot, {
-                      backgroundColor: t.amount < 0 ? Colors.dangerDim : Colors.successDim,
-                    }]}>
-                      <Icon 
-                        name={t.amount < 0 ? 'arrow-down' : 'arrow-up'} 
-                        size={16} 
-                        color={t.amount < 0 ? Colors.danger : Colors.success} 
-                      />
-                    </View>
-                    <View style={styles.txnInfo}>
-                      <Text style={styles.txnSub}>
-                        {t.subCategory.charAt(0).toUpperCase() + t.subCategory.slice(1)}
-                      </Text>
-                      {t.note ? <Text style={styles.txnNote}>{t.note}</Text> : null}
-                      <Text style={styles.txnDate}>
-                        {new Date(t.date).toLocaleDateString('en-IN')}
-                      </Text>
-                    </View>
-                    <Text style={[styles.txnAmt, {
-                      color: t.amount < 0 ? Colors.danger : Colors.success,
-                    }]}>
-                      {t.amount < 0 ? '-' : '+'}₹{formatINR(Math.abs(t.amount))}
-                    </Text>
-                  </View>
-                  {i < recentTxns.length - 1 && (
-                    <Divider style={{ marginVertical: 6 }} />
-                  )}
-                </View>
-              ))}
-            </Card>
-          </>
-        )}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalList}>
+          {accounts.creditCardSummaries.map(summary => {
+            const { card, totalOutstanding } = summary;
+            const util = card.creditLimit ? (totalOutstanding / card.creditLimit) * 100 : 0;
+            const uc = creditUtilizationColor(util);
+            return (
+              <Card key={card.id} style={styles.scrollCard}>
+                <RadialProgress pct={Math.min(util, 100)} color={uc} size={60} strokeWidth={6} label={`${Math.round(util)}%`} />
+                <Text style={styles.scrollCardTitle} numberOfLines={1}>{card.bankName}</Text>
+                <Text style={[styles.scrollCardVal, { color: uc }]}>₹{formatINR(totalOutstanding, true)}</Text>
+              </Card>
+            );
+          })}
+        </ScrollView>
 
         <View style={{ height: Spacing.xxl }} />
       </ScrollView>
@@ -608,7 +420,6 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
       <Modal visible={showSalaryCheck} animationType="fade" transparent>
         <View style={styles.salaryModalBg}>
           <View style={styles.salaryModalCard}>
-            {/* Icon + title */}
             <View style={styles.salaryIconRow}>
               <View style={styles.salaryIconCircle}>
                 <Icon name="cash" size={32} color={Colors.success} />
@@ -618,14 +429,10 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
             <Text style={styles.salarySub}>
               It's the 1st! Did your salary get credited this month?
             </Text>
-
-            {/* Expected amount */}
             <View style={styles.salaryExpectedRow}>
               <Text style={styles.salaryExpectedLabel}>EXPECTED SALARY</Text>
               <Text style={styles.salaryExpectedAmt}>₹{formatINR(budget.monthlyIncome)}</Text>
             </View>
-
-            {/* Different amount input */}
             <Text style={[styles.salarySubLabel, { marginTop: Spacing.base }]}>
               Received a different amount? Enter it below:
             </Text>
@@ -637,8 +444,6 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
               placeholder={`e.g. ${Math.round(budget.monthlyIncome)}`}
               placeholderTextColor={Colors.textMuted}
             />
-
-            {/* Action buttons */}
             <View style={styles.salaryBtnRow}>
               <TouchableOpacity
                 style={[styles.salaryBtnYes, salarySubmitting && { opacity: 0.5 }]}
@@ -650,7 +455,6 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                   ? <ActivityIndicator color={Colors.textPrimary} size="small" />
                   : <Text style={styles.salaryBtnYesTxt}>✓ Yes, Same Amount</Text>}
               </TouchableOpacity>
-
               {salaryActualStr.trim().length > 0 && (
                 <TouchableOpacity
                   style={[styles.salaryBtnUpdate, salarySubmitting && { opacity: 0.5 }]}
@@ -662,7 +466,6 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                 </TouchableOpacity>
               )}
             </View>
-
             <TouchableOpacity
               style={styles.salarySkip}
               onPress={() => dismissSalaryCheck(true)}
@@ -683,9 +486,7 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={{ padding: Spacing.base }}>
-            
             <SectionHeader title="Profile Management" />
-            
             <Card style={{ marginBottom: Spacing.base }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.base }}>
                 <Text style={{ fontSize: 32, marginRight: Spacing.sm }}>{auth.activeProfile?.emoji || '👤'}</Text>
@@ -696,7 +497,6 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                   </Text>
                 </View>
               </View>
-              
               <TouchableOpacity 
                 style={styles.actionBtn} 
                 activeOpacity={0.8} 
@@ -716,14 +516,11 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                 </View>
               </TouchableOpacity>
             </Card>
-
             <SectionHeader title="Data Management" />
-            
             <Card style={{ marginBottom: Spacing.base }}>
               <Text style={{ fontSize: FontSize.sm, color: Colors.textSecondary, marginBottom: Spacing.base, lineHeight: 20 }}>
-                You can backup all your financial data (accounts, transactions, loans, etc.) to a secure JSON file on your device.
+                You can backup all your financial data to a secure JSON file on your device.
               </Text>
-              
               <TouchableOpacity style={styles.actionBtn} activeOpacity={0.8} onPress={exportData}>
                 <View style={styles.actionBtnIcon}>
                   <Icon name="save-outline" size={24} color={Colors.primary} />
@@ -733,9 +530,7 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                   <Text style={styles.actionBtnSub}>Save current data to phone storage</Text>
                 </View>
               </TouchableOpacity>
-              
               <Divider style={{ marginVertical: Spacing.sm }} />
-              
               <TouchableOpacity style={[styles.actionBtn, { marginTop: 4 }]} activeOpacity={0.8} onPress={importData}>
                 <View style={styles.actionBtnIcon}>
                   <Icon name="download-outline" size={24} color={Colors.primary} />
@@ -746,43 +541,31 @@ const DashboardScreen: React.FC = observer(({ navigation }: any) => {
                 </View>
               </TouchableOpacity>
             </Card>
-
             <View style={{ height: Spacing.xxl }} />
           </ScrollView>
         </View>
       </Modal>
-
     </>
   );
 });
 
 export default DashboardScreen;
 
-/* ─── styles ──────────────────────────────────────────────────────────── */
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
   content: { paddingTop: Spacing.lg },
 
-  // Header
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.base,
-    marginBottom: Spacing.base,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: Spacing.base, marginBottom: Spacing.base,
   },
   greeting: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    fontWeight: FontWeight.medium,
-    marginBottom: 2,
+    fontSize: FontSize.sm, color: Colors.textSecondary,
+    fontWeight: FontWeight.medium, marginBottom: 2,
   },
   headerTitle: {
-    fontSize: FontSize.xl,
-    fontWeight: FontWeight.black,
-    color: Colors.textPrimary,
-    letterSpacing: -0.5,
+    fontSize: FontSize.xl, fontWeight: FontWeight.black,
+    color: Colors.textPrimary, letterSpacing: -0.5,
   },
   avatarBtn: {
     width: 46, height: 46, borderRadius: 23,
@@ -791,13 +574,12 @@ const styles = StyleSheet.create({
     ...Shadow.glow,
   },
 
-  // Hero
   heroTop: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
     marginBottom: Spacing.sm,
   },
   heroLabel: {
-    fontSize: FontSize.xs, color: Colors.textMuted,
+    fontSize: 10, color: Colors.textMuted,
     fontWeight: FontWeight.semibold, letterSpacing: 1.2,
     textTransform: 'uppercase', marginBottom: 4,
   },
@@ -806,293 +588,83 @@ const styles = StyleSheet.create({
     letterSpacing: -1, color: Colors.textPrimary,
   },
   heroPill: {
-    backgroundColor: Colors.bgElevated,
-    paddingHorizontal: Spacing.sm, paddingVertical: 4,
+    backgroundColor: Colors.bgElevated, paddingHorizontal: Spacing.sm, paddingVertical: 4,
     borderRadius: Radius.full,
   },
   heroPillText: {
-    fontSize: FontSize.xs, color: Colors.textSecondary,
-    fontWeight: FontWeight.semibold,
+    fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: FontWeight.semibold,
   },
 
-  // Nav buttons
-  navBtn: {
-    paddingHorizontal: Spacing.sm, paddingVertical: 4,
-    borderRadius: Radius.full, backgroundColor: `${Colors.primary}18`,
-  },
-  navBtnText: {
-    fontSize: FontSize.xs, color: Colors.primaryLight,
-    fontWeight: FontWeight.semibold,
-  },
+  kpiRow: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.sm, marginTop: Spacing.xs },
+  kpiTile: { flex: 1, alignItems: 'center', gap: 2 },
+  kpiLabel: { fontSize: 9, color: Colors.textMuted, fontWeight: FontWeight.bold, letterSpacing: 0.5 },
+  kpiValue: { fontSize: FontSize.sm, fontWeight: FontWeight.black },
 
-  // This month spending
-  spendCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.sm },
-  emptySpend: { alignItems: 'center', paddingVertical: Spacing.lg },
-  emptyCard: {
-    marginHorizontal: Spacing.base, marginBottom: Spacing.sm,
-    alignItems: 'center', paddingVertical: Spacing.xl,
-  },
-  emptyIcon: { fontSize: 32, marginBottom: Spacing.sm },
-  emptyTitle: {
-    fontSize: FontSize.base, fontWeight: FontWeight.bold,
-    color: Colors.textPrimary,
-  },
-  emptySub: {
-    fontSize: FontSize.xs, color: Colors.textMuted,
-    marginTop: 4, textAlign: 'center',
-  },
+  trendCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.sm, padding: Spacing.base },
+  trendHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: Spacing.base },
+  trendTitle: { fontSize: FontSize.base, fontWeight: FontWeight.bold, color: Colors.textPrimary },
+  trendSub: { fontSize: FontSize.xs, color: Colors.textMuted },
+  trendStat: { alignItems: 'flex-end' },
+  trendStatVal: { fontSize: FontSize.md, fontWeight: FontWeight.black, color: Colors.primary },
+  trendStatLabel: { fontSize: 9, color: Colors.textMuted, textTransform: 'uppercase' },
 
-  incomeVsSpend: { gap: 4 },
-  incomeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  vs50Label: { fontSize: FontSize.sm, color: Colors.textSecondary },
-  vs50Val: { fontSize: FontSize.sm, fontWeight: FontWeight.bold },
-  vs50Pct: { fontSize: FontSize.xs },
+  breakdownCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.sm },
+  breakdownRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.base },
+  breakdownLegend: { flex: 1, gap: Spacing.sm },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendLabel: { fontSize: 10, color: Colors.textMuted, textTransform: 'uppercase' },
+  legendValue: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.textPrimary },
+  legendPct: { fontSize: FontSize.xs, fontWeight: FontWeight.bold },
 
-  chartCaption: {
-    fontSize: FontSize.xs, color: Colors.textMuted,
-    fontWeight: FontWeight.semibold, letterSpacing: 0.8,
-    textTransform: 'uppercase', marginBottom: Spacing.sm,
-  },
+  gaugeRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: Spacing.base, marginBottom: Spacing.sm, gap: Spacing.sm },
+  gaugeCard: { flex: 1, alignItems: 'center', padding: Spacing.sm },
+  gaugeTitle: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: Colors.textPrimary, marginTop: 4 },
+  gaugeSub: { fontSize: 9, color: Colors.textMuted },
 
-  // Category bars
-  catCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.sm },
+  emiPortfolioCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.sm },
+  chartCaption: { fontSize: 10, color: Colors.textMuted, fontWeight: FontWeight.bold, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: Spacing.sm },
+  portfolioRow: { flexDirection: 'row', alignItems: 'center' },
 
-  // Budget health
-  budgetCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.sm, gap: Spacing.sm },
-  budgetRow: { gap: 4 },
-  budgetLeft: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
-  },
-  budgetLabel: {
-    fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textPrimary, flex: 1,
-  },
-  budgetStat: { fontSize: FontSize.xs },
-  budgetRight: {},
-  budgetPct: { fontSize: FontSize.sm, fontWeight: FontWeight.bold },
-  budgetBarWrap: {},
+  horizontalList: { paddingLeft: Spacing.base, marginBottom: Spacing.base },
+  scrollCard: { width: 110, marginRight: Spacing.sm, alignItems: 'center', padding: Spacing.sm },
+  scrollCardTitle: { fontSize: FontSize.xs, fontWeight: FontWeight.semibold, color: Colors.textSecondary, marginTop: 6 },
+  scrollCardVal: { fontSize: FontSize.sm, fontWeight: FontWeight.bold },
 
-  // EMI
-  emiBarCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.sm },
-  debtDonut: { marginHorizontal: Spacing.base, marginBottom: Spacing.sm },
-  loanCard: {
-    marginHorizontal: Spacing.base, marginBottom: Spacing.sm, gap: Spacing.sm,
-  },
-  loanRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  loanIcon: {
-    width: 44, height: 44, borderRadius: Radius.md,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  loanEmoji: { fontSize: 20 },
-  loanInfo: { flex: 1, gap: 4 },
-  loanName: {
-    fontSize: FontSize.base, fontWeight: FontWeight.semibold,
-    color: Colors.textPrimary,
-  },
-  loanRight: { alignItems: 'flex-end' },
-  loanEmi: { fontSize: FontSize.md, fontWeight: FontWeight.bold },
-  loanDue: { fontSize: FontSize.xs, marginTop: 2 },
-  progressRow: {
-    flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4,
-  },
-  progressLabel: { fontSize: FontSize.xs, color: Colors.textMuted },
-  progressPct: { fontSize: FontSize.xs, fontWeight: FontWeight.bold },
-
-  // Credit
   utilCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.sm },
-  utilTop: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
-  },
-  utilBig: { fontSize: FontSize.xxl, fontWeight: FontWeight.black, letterSpacing: -0.5 },
-  utilBig2: { fontSize: FontSize.lg, fontWeight: FontWeight.black },
-  utilSub: { fontSize: FontSize.xs, color: Colors.textMuted },
-  creditCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.sm },
-  cardSub: { fontSize: FontSize.xs, color: Colors.textSecondary, marginTop: 2 },
+  utilTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  utilLabel: { fontSize: 10, color: Colors.textMuted, fontWeight: FontWeight.bold, letterSpacing: 1, textTransform: 'uppercase' },
+  utilBigVal: { fontSize: FontSize.xxl, fontWeight: FontWeight.black, letterSpacing: -0.5 },
+  utilInfoText: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: Spacing.xs },
 
-  // Recent transactions
-  txnsCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.sm },
-  txnRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  txnDot: {
-    width: 32, height: 32, borderRadius: 16,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  txnDotText: { fontSize: 12, color: Colors.textSecondary },
-  txnInfo: { flex: 1 },
-  txnSub: {
-    fontSize: FontSize.sm, fontWeight: FontWeight.medium,
-    color: Colors.textPrimary,
-  },
-  txnNote: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  txnDate: { fontSize: FontSize.xs, color: Colors.textMuted },
-  txnAmt: { fontSize: FontSize.md, fontWeight: FontWeight.black },
+  navBtnText: { fontSize: FontSize.xs, color: Colors.primary, fontWeight: FontWeight.bold },
 
-  // Credit card bill section
-  billCard: {
-    marginHorizontal: Spacing.base, marginBottom: Spacing.sm, gap: Spacing.sm,
-  },
-  billHeaderRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
-    marginBottom: Spacing.xs,
-  },
-  billCardLeft: { flex: 1 },
-  billCardTitle: {
-    fontSize: FontSize.base, fontWeight: FontWeight.bold, color: Colors.textPrimary,
-  },
-  billCycleLabel: {
-    fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2,
-  },
-  billCardRight: { alignItems: 'flex-end' },
-  billDaysLeft: {
-    fontSize: FontSize.xs, fontWeight: FontWeight.bold, textTransform: 'uppercase', letterSpacing: 0.5,
-  },
-  billTotal: {
-    fontSize: FontSize.lg, fontWeight: FontWeight.black, color: Colors.textPrimary, marginTop: 2,
-  },
-  noSpends: {
-    fontSize: FontSize.xs, color: Colors.textMuted, fontStyle: 'italic', paddingVertical: 4,
-  },
-  billSpendRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingVertical: 7, borderTopWidth: 1, borderTopColor: Colors.border,
-  },
-  billSpendInfo: { flex: 1 },
-  billSpendSub: {
-    fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.textPrimary, textTransform: 'capitalize',
-  },
-  billSpendDate: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 1 },
-  billSpendAmt: { fontSize: FontSize.sm, fontWeight: FontWeight.bold },
-  moreTxns: {
-    fontSize: FontSize.xs, color: Colors.primary, fontWeight: FontWeight.semibold,
-    textAlign: 'center', paddingTop: Spacing.xs,
-  },
-
-  // Settings Modal
   modalBg: { flex: 1, backgroundColor: Colors.bg },
-  modalHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: Spacing.base, borderBottomWidth: 1, borderBottomColor: Colors.border,
-    paddingTop: Spacing.lg,
-  },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.base, borderBottomWidth: 1, borderBottomColor: Colors.border, paddingTop: Spacing.lg },
   modalTitle: { fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.textPrimary },
-  modalCloseBtn: {
-    width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.bgElevated,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  modalCloseBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.bgElevated, alignItems: 'center', justifyContent: 'center' },
   modalClose: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: FontWeight.bold },
-  
-  actionBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    paddingVertical: Spacing.sm, paddingHorizontal: Spacing.sm,
-    backgroundColor: Colors.bgCard, borderRadius: Radius.md,
-    borderWidth: 1.5, borderColor: Colors.border,
-  },
-  actionBtnIcon: { 
-    width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.primaryGlow, 
-    alignItems: 'center', justifyContent: 'center' 
-  },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.sm, backgroundColor: Colors.bgCard, borderRadius: Radius.md, borderWidth: 1.5, borderColor: Colors.border },
+  actionBtnIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.primaryGlow, alignItems: 'center', justifyContent: 'center' },
   actionBtnLabel: { fontSize: FontSize.base, fontWeight: FontWeight.bold, color: Colors.textPrimary },
   actionBtnSub: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
 
-  // Pay Bill modal logic
-  payBtn: {
-    backgroundColor: Colors.primaryDark,
-    borderRadius: Radius.md,
-    paddingVertical: Spacing.sm,
-    alignItems: 'center',
-    marginTop: Spacing.sm,
-  },
-  payBtnText: {
-    color: Colors.textPrimary,
-    fontWeight: FontWeight.bold,
-    fontSize: FontSize.sm,
-  },
-  inputLabel: { fontSize: FontSize.sm, color: Colors.textSecondary, marginBottom: Spacing.xs, marginTop: Spacing.base, fontWeight: FontWeight.medium },
-  input: { backgroundColor: Colors.bgCard, borderRadius: Radius.md, padding: Spacing.base, color: Colors.textPrimary, fontSize: FontSize.base, borderWidth: 1, borderColor: Colors.border },
-  saveBtn: { backgroundColor: Colors.primary, borderRadius: Radius.md, padding: Spacing.base, alignItems: 'center', marginTop: Spacing.xl, marginBottom: Spacing.xxl },
-  saveBtnText: { color: Colors.textPrimary, fontWeight: FontWeight.bold, fontSize: FontSize.base },
-  
-  paymentChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: Spacing.base, paddingVertical: Spacing.sm,
-    borderRadius: Radius.md, borderWidth: 1.5,
-    borderColor: Colors.border, backgroundColor: Colors.bgCard,
-    marginRight: 8,
-  },
-  paymentChipActive: { backgroundColor: `${Colors.info}18`, borderColor: Colors.info },
-  paymentChipEmoji: { fontSize: 16 },
-  paymentChipLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textSecondary },
-  paymentChipLabelActive: { color: Colors.textPrimary, fontWeight: FontWeight.bold },
-  paymentChipSub: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 1 },
-
-  // Salary check modal
-  salaryModalBg: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.75)',
-    justifyContent: 'center', padding: Spacing.lg,
-  },
-  salaryModalCard: {
-    backgroundColor: Colors.bgCard, borderRadius: Radius.xl,
-    padding: Spacing.lg, gap: Spacing.sm,
-    borderWidth: 1, borderColor: `${Colors.success}30`,
-  },
+  salaryModalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', padding: Spacing.lg },
+  salaryModalCard: { backgroundColor: Colors.bgCard, borderRadius: Radius.xl, padding: Spacing.lg, gap: Spacing.sm, borderWidth: 1, borderColor: `${Colors.success}30` },
   salaryIconRow: { alignItems: 'center', marginBottom: 4 },
-  salaryIconCircle: {
-    width: 64, height: 64, borderRadius: 32,
-    backgroundColor: `${Colors.success}18`,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  salaryTitle: {
-    fontSize: FontSize.xl, fontWeight: FontWeight.black,
-    color: Colors.textPrimary, textAlign: 'center',
-  },
-  salarySub: {
-    fontSize: FontSize.sm, color: Colors.textSecondary,
-    textAlign: 'center', lineHeight: 20,
-  },
-  salaryExpectedRow: {
-    backgroundColor: `${Colors.success}12`,
-    borderRadius: Radius.md, padding: Spacing.base,
-    alignItems: 'center', marginTop: 4,
-    borderWidth: 1, borderColor: `${Colors.success}25`,
-  },
-  salaryExpectedLabel: {
-    fontSize: 10, fontWeight: FontWeight.bold,
-    color: Colors.textMuted, letterSpacing: 1,
-    textTransform: 'uppercase', marginBottom: 4,
-  },
-  salaryExpectedAmt: {
-    fontSize: FontSize.xxl, fontWeight: FontWeight.black,
-    color: Colors.success, letterSpacing: -1,
-  },
-  salarySubLabel: {
-    fontSize: FontSize.xs, color: Colors.textSecondary,
-    fontWeight: FontWeight.medium,
-  },
-  salaryInput: {
-    backgroundColor: Colors.bg, borderRadius: Radius.md,
-    padding: Spacing.base, color: Colors.textPrimary,
-    fontSize: FontSize.base, borderWidth: 1.5,
-    borderColor: Colors.border,
-  },
+  salaryIconCircle: { width: 64, height: 64, borderRadius: 32, backgroundColor: `${Colors.success}18`, alignItems: 'center', justifyContent: 'center' },
+  salaryTitle: { fontSize: FontSize.xl, fontWeight: FontWeight.black, color: Colors.textPrimary, textAlign: 'center' },
+  salarySub: { fontSize: FontSize.sm, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 },
+  salaryExpectedRow: { backgroundColor: `${Colors.success}12`, borderRadius: Radius.md, padding: Spacing.base, alignItems: 'center', marginTop: 4, borderWidth: 1, borderColor: `${Colors.success}25` },
+  salaryExpectedLabel: { fontSize: 10, fontWeight: FontWeight.bold, color: Colors.textMuted, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 },
+  salaryExpectedAmt: { fontSize: FontSize.xxl, fontWeight: FontWeight.black, color: Colors.success, letterSpacing: -1 },
+  salarySubLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: FontWeight.medium },
+  salaryInput: { backgroundColor: Colors.bg, borderRadius: Radius.md, padding: Spacing.base, color: Colors.textPrimary, fontSize: FontSize.base, borderWidth: 1.5, borderColor: Colors.border },
   salaryBtnRow: { gap: Spacing.sm, marginTop: Spacing.sm },
-  salaryBtnYes: {
-    backgroundColor: Colors.success, borderRadius: Radius.md,
-    padding: Spacing.base, alignItems: 'center',
-  },
-  salaryBtnYesTxt: {
-    color: Colors.textPrimary, fontWeight: FontWeight.black,
-    fontSize: FontSize.base,
-  },
-  salaryBtnUpdate: {
-    backgroundColor: Colors.primaryGlow, borderRadius: Radius.md,
-    padding: Spacing.base, alignItems: 'center',
-    borderWidth: 1, borderColor: Colors.primary,
-  },
-  salaryBtnUpdateTxt: {
-    color: Colors.primaryLight, fontWeight: FontWeight.bold,
-    fontSize: FontSize.base,
-  },
+  salaryBtnYes: { backgroundColor: Colors.success, borderRadius: Radius.md, padding: Spacing.base, alignItems: 'center' },
+  salaryBtnYesTxt: { color: Colors.textPrimary, fontWeight: FontWeight.black, fontSize: FontSize.base },
+  salaryBtnUpdate: { backgroundColor: Colors.primaryGlow, borderRadius: Radius.md, padding: Spacing.base, alignItems: 'center', borderWidth: 1, borderColor: Colors.primary },
+  salaryBtnUpdateTxt: { color: Colors.primaryLight, fontWeight: FontWeight.bold, fontSize: FontSize.base },
   salarySkip: { alignItems: 'center', paddingVertical: Spacing.sm },
-  salarySkipTxt: {
-    fontSize: FontSize.xs, color: Colors.textMuted,
-    textDecorationLine: 'underline',
-  },
+  salarySkipTxt: { fontSize: FontSize.xs, color: Colors.textMuted, textDecorationLine: 'underline' },
 });
